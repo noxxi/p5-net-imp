@@ -10,4 +10,13 @@ lib/Net/IMP/ProtocolPinning.pm
 lib/Net/IMP/SessionLog.pm
 Makefile.PL
 MANIFEST			This list of files
+COPYRIGHT
+README
+bin/README
+bin/imp-pcap-filter.pl
+bin/imp-relay.pl
 t/01_load.t
+t/02_imp-cascade-pattern.t
+t/03_imp-cascade-pass-future.t
+t/04_imp-cascade-bide.t
+t/05_imp-protopin.t

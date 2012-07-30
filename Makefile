@@ -1,4 +1,4 @@
-# This Makefile is for the Net::Inspect extension to perl.
+# This Makefile is for the Net::IMP extension to perl.
 #
 # It was generated automatically by MakeMaker version
 # 6.57_05 (Revision: 65705) from the contents of
@@ -12,7 +12,7 @@
 #   MakeMaker Parameters:
 
 #     BUILD_REQUIRES => {  }
-#     NAME => q[Net::Inspect]
+#     NAME => q[Net::IMP]
 #     PREREQ_PM => {  }
 #     VERSION_FROM => q[lib/Net/IMP.pm]
 
@@ -51,8 +51,8 @@ VENDORLIBEXP = /usr/share/perl5
 AR_STATIC_ARGS = cr
 DIRFILESEP = /
 DFSEP = $(DIRFILESEP)
-NAME = Net::Inspect
-NAME_SYM = Net_Inspect
+NAME = Net::IMP
+NAME_SYM = Net_IMP
 VERSION = 0.1
 VERSION_MACRO = VERSION
 VERSION_SYM = 0_1
@@ -141,8 +141,8 @@ MM_REVISION = 65705
 # PARENT_NAME = NAME without BASEEXT and no trailing :: (eg Foo::Bar)
 # DLBASE  = Basename part of dynamic library. May be just equal BASEEXT.
 MAKE = make
-FULLEXT = Net/Inspect
-BASEEXT = Inspect
+FULLEXT = Net/IMP
+BASEEXT = IMP
 PARENT_NAME = Net
 DLBASE = $(BASEEXT)
 VERSION_FROM = lib/Net/IMP.pm
@@ -286,8 +286,8 @@ CI = ci -u
 RCS_LABEL = rcs -Nv$(VERSION_SYM): -q
 DIST_CP = best
 DIST_DEFAULT = tardist
-DISTNAME = Net-Inspect
-DISTVNAME = Net-Inspect-0.1
+DISTNAME = Net-IMP
+DISTVNAME = Net-IMP-0.1
 
 
 # --- MakeMaker macro section:
@@ -525,7 +525,7 @@ realclean purge ::  clean realclean_subdirs
 metafile : create_distdir
 	$(NOECHO) $(ECHO) Generating META.yml
 	$(NOECHO) $(ECHO) '--- #YAML:1.0' > META_new.yml
-	$(NOECHO) $(ECHO) 'name:               Net-Inspect' >> META_new.yml
+	$(NOECHO) $(ECHO) 'name:               Net-IMP' >> META_new.yml
 	$(NOECHO) $(ECHO) 'version:            0.1' >> META_new.yml
 	$(NOECHO) $(ECHO) 'abstract:           ~' >> META_new.yml
 	$(NOECHO) $(ECHO) 'author:  []' >> META_new.yml
