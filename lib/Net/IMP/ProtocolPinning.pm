@@ -264,7 +264,7 @@ specific to this module:
 
 =item rules ARRAY
 
-Specifies the rules to use for protocol verification. Rules are in array
+Specifies the rules to use for protocol verification. Rules are an array
 of direction specific rules, e.g. each rule consists of C<[dir,rxlen,rx]> with
 
 =over 8
@@ -314,7 +314,7 @@ string with the sizes delimited by ":".
 When new data arrive from direction and C<ignore_order> is false, it will take
 the first active rule and compare the direction of the data with the direction
 of the rule.
-If they don't match it will be considered an protocol violation and a DENY will
+If they don't match it will be considered a protocol violation and a DENY will
 be issued.
 
 When new data arrive from direction, but C<ignore_order> is true, it will pick
@@ -353,8 +353,8 @@ If the rule matched, it will
 
 =item *
 
-If the rule did not match, but the length of the local buffer is
-C<< >=rxlen >>, it will consider the rule failed and issue a DENY.
+If the rule did not match, but the length of the local buffer is greater than
+or equal to C<< rxlen >>, it will consider the rule failed and issue a DENY.
 
 If the rule did not match, but the buffer is smaller than rxlen, it will wait
 for more data and then try the match again.
@@ -370,8 +370,8 @@ without further analysis.
 =head2 Rules for Writing the Regular Expressions
 
 Because the match will be tried whenever new data come in (e.g. the buffer might
-have a size of less, equal or greater then C<rxlen>), care should be taken, when
-constructing the regular expression and determining C<rxlen>:
+have a size of less than, equal to or greater than C<rxlen>), care should be
+taken, when constructing the regular expression and determining C<rxlen>:
 
 =over 4
 
