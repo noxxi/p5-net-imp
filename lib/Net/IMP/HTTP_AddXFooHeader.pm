@@ -20,7 +20,7 @@ sub new {
     my ($class) = @_;
     $Net::Inspect::Debug::DEBUG = $DEBUG;
     return $class->SUPER::new(
-	# whenever we have a new request sub new_request 
+	# whenever we have a new request sub new_request
 	# is called on this object
 	Net::IMP::HTTP_AddXFooHeader::HTTPRequest->new
     );
@@ -30,7 +30,7 @@ sub new_connection {
     my Net::IMP::HTTP_AddXFooHeader::HTTPConnection $self = shift;
     my ($meta,$imp) = @_;
 
-    my Net::IMP::HTTP_AddXFooHeader::HTTPConnection $obj = 
+    my Net::IMP::HTTP_AddXFooHeader::HTTPConnection $obj =
 	$self->SUPER::new_connection($meta);
     $obj->{imp} = $imp;
     return $obj;
@@ -47,7 +47,7 @@ sub in_response_header {
     my ($hdr,$time) = @_;
 
     # add header
-    $hdr =~s{(\r?\n)\1}{$1X-Foo: bar$1$1} 
+    $hdr =~s{(\r?\n)\1}{$1X-Foo: bar$1$1}
 	or die "could not add header";
 
     # return the result with the replaced header
@@ -98,7 +98,7 @@ use Net::IMP; # import IMP_ constants
 use Carp 'croak';
 use Scalar::Util 'weaken';
 
-sub USED_RTYPES { 
+sub USED_RTYPES {
     return (
 	# we use PREPASS to make sure, that we get all data to maintain
 	# internal state, because we don't support gaps yet
@@ -116,7 +116,7 @@ sub USED_RTYPES {
 sub new_analyzer {
     my ($class,%args) = @_;
 
-    my Net::IMP::HTTP_AddXFooHeader $self = 
+    my Net::IMP::HTTP_AddXFooHeader $self =
 	$class->SUPER::new_analyzer( %args,
 	dataf => undef, # set below
     );
@@ -128,7 +128,7 @@ sub new_analyzer {
     # the connection needs self to call back
     # to avoid circular references we need to give a weak reference
     weaken( my $weak_self = $self );
-    my Net::IMP::HTTP_AddXFooHeader::HTTPConnection $analyzer = 
+    my Net::IMP::HTTP_AddXFooHeader::HTTPConnection $analyzer =
 	Net::IMP::HTTP_AddXFooHeader::HTTPConnection->new_connection(
 	    {},         # we have no meta data
 	    $weak_self
@@ -158,9 +158,9 @@ sub new_analyzer {
 }
 
 # just call the closure in dataf
-sub data { 
+sub data {
     my Net::IMP::HTTP_AddXFooHeader $self = shift;
-    return $self->{dataf}(@_) 
+    return $self->{dataf}(@_)
 }
 
 
@@ -178,3 +178,14 @@ This module analyses HTTP streams and adds an X-Foo header add the end of each
 HTTP response header it finds in the stream.
 This module is not very useful by its own.
 It is only used to show, how these kind of manipulations can be done.
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

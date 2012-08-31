@@ -12,7 +12,7 @@ use WWW::CSP;
 use Net::IMP::Debug;
 WWW::CSP::Debug->extern( \$DEBUG,\&debug);
 
-sub USED_RTYPES { 
+sub USED_RTYPES {
     return (
 	# we use PREPASS to make sure, that we get all data to maintain
 	# internal state in cased we cannot do gaps. In simple cases
@@ -81,9 +81,9 @@ sub new_analyzer {
 }
 
 # everything done within closure
-sub data { 
+sub data {
     my $self = shift;
-    return $self->{dataf}(@_) 
+    return $self->{dataf}(@_)
 }
 
 
@@ -263,7 +263,7 @@ sub fatal {
     $conn->{imp}->run_callback([IMP_DENY,$dir||0,$reason]);
 }
 
-1;	
+1;
 
 __END__
 
@@ -323,3 +323,14 @@ calling C<$policy->change_response_header> on the response header to let the CSP
 module add the appropriate CSP header.
 
 =back
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

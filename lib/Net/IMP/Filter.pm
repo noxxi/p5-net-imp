@@ -46,7 +46,7 @@ sub new {
 	topass  => [0,0], # may pass up to this offset
 	prepass => [0,0], # flag if topass means prepass, not pass
 	skipped => [0,0], # flag if last data got not send to analyzer
-	                  # because of pass into future
+			  # because of pass into future
 	eof     => 0,     # bitmask set inside output
     );
     $imp->set_callback(\&_imp_cb,$self) if $imp;
@@ -215,3 +215,14 @@ this gets called on IMP_LOG
 this gets called on IMP_ACCTFIELD
 
 =back
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

@@ -875,3 +875,14 @@ Currently IMP_TOSENDER is not supported
 
 Don't know of any, but the feature and thus the code is way more complex than I
 originally hoped :(
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

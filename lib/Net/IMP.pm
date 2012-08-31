@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.2_2;
+our $VERSION = 0.2_3;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -36,7 +36,7 @@ our @EXPORT = qw(
 use constant IMP_LOG          => dualvar(0x0000,"log");
 use constant IMP_PORT_OPEN    => dualvar(0x0001,"port_open");
 use constant IMP_PORT_CLOSE   => dualvar(0x0002,"port_close");
-use constant IMP_ACCTFIELD    => dualvar(0x0003,"acctfld");
+use constant IMP_ACCTFIELD    => dualvar(0x0003,"acctfield");
 ### keep data
 use constant IMP_PASS         => dualvar(0x1001,"pass");
 use constant IMP_PASS_PATTERN => dualvar(0x1002,"pass_pattern");
@@ -431,3 +431,14 @@ the processing of the shutdown by sending an IMP_PASS with an offset after the
 connection end.
 
 =back
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

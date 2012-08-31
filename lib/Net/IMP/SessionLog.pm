@@ -31,13 +31,13 @@ sub new_analyzer {
     my $fmt  = $args{format} || 'bin';
     if ( $fmt ne 'bin' ) {
 	$fmt eq 'pcap' or croak "format should be bin or pcap";
-	eval "require 'Net::PcapWriter'" or croak 
+	eval "require 'Net::PcapWriter'" or croak
 	    "cannot load Net::PcapWriter needed for format pcap";
     }
 
     my $meta = $args{meta};
-    my ($fh,$fname) = tempfile( 
-	sprintf("%d-%s.%s-%s.%s-XXXXX", time(), 
+    my ($fh,$fname) = tempfile(
+	sprintf("%d-%s.%s-%s.%s-XXXXX", time(),
 	    @{$meta}{qw(caddr cport saddr sport)}),
 	SUFFIX => ".$fmt",
 	DIR => $args{dir}
@@ -53,7 +53,7 @@ sub new_analyzer {
 
     my $self = $class->SUPER::new_analyzer(
 	meta => $args{meta},
-	cb => $args{cb}, 
+	cb => $args{cb},
 	fh => $fh,
 	conn => $conn,
     );
@@ -80,7 +80,7 @@ sub data {
     $self->run_callback;
 }
 
-1;	
+1;
 
 __END__
 
@@ -137,3 +137,13 @@ etc. In this case it needs the L<Net::PcapWriter> module.
 
 =back
 
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

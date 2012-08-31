@@ -285,3 +285,14 @@ Replaces the data with the string given in C<actdata>
 Meaning depends on C<action>. See there.
 
 =back
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

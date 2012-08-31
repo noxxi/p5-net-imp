@@ -6,9 +6,9 @@ use base 'Exporter';
 our @EXPORT = qw($DEBUG debug);
 our @EXPORT_OK = qw($DEBUG_RX set_debug);
 
-our $DEBUG = 0;               # is debugging enabled at all
-our $DEBUG_RX = undef;        # debug only specific packages
-my  $DEBUG_SUB = undef;       # extern sub to call instead of internal
+our $DEBUG = 0;          # is debugging enabled at all
+our $DEBUG_RX = undef;   # debug only packages matching given regex
+my  $DEBUG_SUB = undef;  # external debug function to call instead of internal
 
 # import exported stuff, special case var => \$debug, func => \$code
 sub import {
@@ -29,7 +29,8 @@ sub import {
 	}
     }
 
-    # call Exporter with remaining args if any
+    # call Exporter only if we have remaining args, because we don't
+    # want to trigger the default export if user gave args (e.g. var,sub)
     goto &Exporter::import if @_>1;
 }
 
@@ -55,7 +56,7 @@ sub debug {
     if ( $DEBUG_RX ) {
 	$pkg ||= 'main';
 	# does not match wanted package
-	return if $pkg !~ m{^(?:$DEBUG_RX)$};
+	return if $pkg !~ $DEBUG_RX;
 	# goto foreign debug sub
 	goto &$DEBUG_SUB if $DEBUG_SUB;
     }
@@ -63,7 +64,7 @@ sub debug {
     my $sub = (caller(1))[3];
     $sub =~s{^main::}{} if $sub;
     $sub ||= 'Main';
-    $msg = "$sub\[$line]: ".$msg;
+    $msg = "${sub}[$line]: ".$msg;
 
     $msg =~s{^}{DEBUG: }mg;
     print STDERR $msg,"\n";
@@ -88,7 +89,7 @@ Net::IMP::Debug - provide debugging functions
 
     # outside of Net::IMP
     use Net::IMP;
-    Net::IMP->set_debug(1, rx => qr{::Pattern});
+    Net::IMP->set_debug(1,qr{::Pattern});
 
     # or integrate it into existing debugging framework
     # $myDebug needs to be global, not lexical!
@@ -134,7 +135,7 @@ This variable can contain a regex.
 If set, only debugging within packages matching the regex will be enabled, but
 only if c<$DEBUG> is also true.
 
-This variable can be imported.
+This variable can be exported.
 
 =back
 
@@ -176,3 +177,14 @@ This will call C<my_debug> with the debug message instead of using the builtin
 implementation.
 
 =back
+
+=head1 AUTHOR
+
+Steffen Ullrich <sullr@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright by Steffen Ullrich.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.

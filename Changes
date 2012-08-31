@@ -1,4 +1,12 @@
-0.2_1,0.2_2 2012/8/31
+0.2_3 2012/8/31
+- added author and copyright to *.pm
+- make rules definition more verbose in ProtocolPinning by using hash not array,
+  call max_open now max_unbound
+- str2cfg, cfg2str now operate on hashes not hash refs
+- documentation updates
+0.2_2 2012/8/31
+- doku fixes
+0.2_1 2012/8/31
 - fixes for cfg2str
 - doku fix
 0.2  2012/8/31

@@ -15,7 +15,11 @@ $DEBUG=0; # enable for extensiv debugging
 my %only = map { $_ =>1 } @ARGV;
 my @tests = (
     {
-	rules => [[0,4,qr/affe/],[1,4,qr/hund/],[0,2,qr/ok/]],
+	rules => [
+	    { dir => 0, rxlen => 4, rx => qr/affe/ },
+	    { dir => 1, rxlen => 4, rx => qr/hund/ },
+	    { dir => 0, rxlen => 2, rx => qr/ok/ }
+	],
 	in => [
 	    [0,'affe'],
 	    [1,'hund'],
@@ -43,7 +47,9 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	rules => [[1,7,qr/SSH-2\.0/]],
+	rules => [
+	    { dir => 1, rxlen => 7, rx => qr/SSH-2\.0/ }
+	],
 	in => [
 	    [ 0,'huhu' ],
 	    [ 1,"SSH-2.0-OpenSSH_5.9p1 Debian-5ubuntu1\n" ],
@@ -53,13 +59,16 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	max_open => [4,], # "huhu" fits in 4 bytes
+	max_unbound => [4,], # "huhu" fits in 4 bytes
     }, {
-	max_open => [0,],
+	max_unbound => [0,],
 	rv => [[IMP_DENY, 0, 'too much data outside rules' ]],
     }, {
-	max_open => [100,100],
-	rules => [[0,5,qr/affe\n/],[1,5,qr/hund\n/]],
+	max_unbound => [100,100],
+	rules => [
+	    { dir => 0, rxlen => 5, rx => qr/affe\n/ },
+	    { dir => 1, rxlen => 5, rx => qr/hund\n/ },
+	],
 	in => [
 	    [ 0,'affe' ],[0,"\njuppi"],
 	    [ 1,'hu' ],[1,'nd'],[1,"\n"],
@@ -88,7 +97,7 @@ for(my $i=0;$i<@tests;$i++) {
 
     my $analyzer = Net::IMP::ProtocolPinning->new_factory(
 	rules        => $test{rules},
-	max_open     => $test{max_open},
+	max_unbound  => $test{max_unbound},
 	ignore_order => $test{ignore_order},
     )->new_analyzer( cb => [$cb] );
 
