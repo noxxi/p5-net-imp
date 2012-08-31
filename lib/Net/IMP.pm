@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.1;
+our $VERSION = 0.2;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -24,7 +24,7 @@ our @EXPORT = qw(
     IMP_LOG
     IMP_PORT_OPEN
     IMP_PORT_CLOSE
-    IMP_ACCTFLD
+    IMP_ACCTFIELD
     IMP_MAXOFFSET
 );
 
@@ -36,7 +36,7 @@ our @EXPORT = qw(
 use constant IMP_LOG          => dualvar(0x0000,"log");
 use constant IMP_PORT_OPEN    => dualvar(0x0001,"port_open");
 use constant IMP_PORT_CLOSE   => dualvar(0x0002,"port_close");
-use constant IMP_ACCTFLD      => dualvar(0x0003,"acctfld");
+use constant IMP_ACCTFIELD    => dualvar(0x0003,"acctfld");
 ### keep data
 use constant IMP_PASS         => dualvar(0x1001,"pass");
 use constant IMP_PASS_PATTERN => dualvar(0x1002,"pass_pattern");
@@ -397,7 +397,7 @@ through additional analyzers.
 
 TODO: details will be specified when this feature is needed.
 
-=item [ IMP_ACCTFLD, $key, $value ]
+=item [ IMP_ACCTFIELD, $key, $value ]
 
 This specifies a tuple which should be used for accounting (like name of
 logfile, URL...)

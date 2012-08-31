@@ -1,0 +1,9 @@
+0.2  2012/8/31
+- IMP_ACCTFLD -> IMP_ACCTFIELD
+- various internal renamings and comment changes in ProtocolPinning for better
+  understanding of code and usage
+- cfg2str and str2cfg methods in Base to aid in using config from string
+- cfg2str and str2cfg redefined in ProtocolPinning because of deeper config,
+  remove old stringification for rules and max_open
+0.1 2012/7/30
+- initial release

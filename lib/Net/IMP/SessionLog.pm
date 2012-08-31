@@ -12,7 +12,7 @@ use Time::HiRes 'gettimeofday';
 use File::Temp 'tempfile';
 
 # we only use the PREPASS type
-sub USED_RTYPES { return (IMP_PREPASS,IMP_ACCTFLD) };
+sub USED_RTYPES { return (IMP_PREPASS,IMP_ACCTFIELD) };
 sub new_factory {
     my ($class,%args) = @_;
     # XXX new_factory might be called in a different root than new_analyzer
@@ -60,7 +60,7 @@ sub new_analyzer {
 
     # only results for both directions + acct
     $self->add_results(
-	[ IMP_ACCTFLD,'logfile',$fname ],
+	[ IMP_ACCTFIELD,'logfile',$fname ],
 	[ IMP_PREPASS,0,IMP_MAXOFFSET ],
 	[ IMP_PREPASS,1,IMP_MAXOFFSET ]
     );

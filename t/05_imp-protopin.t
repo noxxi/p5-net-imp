@@ -15,7 +15,7 @@ $DEBUG=0; # enable for extensiv debugging
 my %only = map { $_ =>1 } @ARGV;
 my @tests = (
     {
-	rules => "!0!4!affe!!1!4!hund!!0!2!ok",
+	rules => [[0,4,qr/affe/],[1,4,qr/hund/],[0,2,qr/ok/]],
 	in => [
 	    [0,'affe'],
 	    [1,'hund'],
@@ -43,7 +43,7 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	rules => "!1!7!SSH-2\.0",
+	rules => [[1,7,qr/SSH-2\.0/]],
 	in => [
 	    [ 0,'huhu' ],
 	    [ 1,"SSH-2.0-OpenSSH_5.9p1 Debian-5ubuntu1\n" ],
@@ -53,13 +53,13 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	max_open => "4,", # "huhu" fits in 4 bytes
+	max_open => [4,], # "huhu" fits in 4 bytes
     }, {
-	max_open => "0,",
+	max_open => [0,],
 	rv => [[IMP_DENY, 0, 'too much data outside rules' ]],
     }, {
-	max_open => "100,100",
-	rules => '!0!5!affe\n!!1!5!hund\n',
+	max_open => [100,100],
+	rules => [[0,5,qr/affe\n/],[1,5,qr/hund\n/]],
 	in => [
 	    [ 0,'affe' ],[0,"\njuppi"],
 	    [ 1,'hu' ],[1,'nd'],[1,"\n"],

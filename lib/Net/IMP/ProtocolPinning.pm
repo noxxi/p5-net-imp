@@ -5,8 +5,8 @@ package Net::IMP::ProtocolPinning;
 use base 'Net::IMP::Base';
 use fields (
     'buf',            # buffered data for each direction
-    'offset',         # position of buf[dir][0] in input stream
-    'opendata',       # offset up to which not yet forwarded
+    'off_buf0',       # position of buf[dir][0] in input stream
+    'off_not_fwd',    # offset up to which not yet forwarded
     'rules',          # rules from config
     'ignore_order',   # ignore_order from config
     'max_open',       # max_open from config
@@ -23,53 +23,30 @@ sub new_analyzer {
     my ($class,%args) = @_;
 
     my $rules = delete $args{rules} or croak("rules need to be given");
-    my @rules;
-    if ( ref $rules ) {
-	# already in the required format:
-	# @rules = [dir,rxlen,rx],[dir,rxlen,rx],...
-	@rules = @$rules
-    } else {
-	# as string (from config)
-	# rules=!dir!rxlen!rx!!dir!rxlen!rx!!...
-	# '!' is delimiter - we take anything as delimiter which was given
-	# as first character  ('!' is just an example)
-	my $delim = $rules =~s{(.)}{} && $1;
-	for my $r ( split( /\Q$delim$delim/, $rules )) {
-	    my ($dir,$rxlen,$rx) = split( /\Q$delim/,$r,3 );
-	    defined $rx and $rx ne '' or croak "rx must be given: $r";
-	    $rxlen>0 or croak "rxline must be >0: $r";
-	    $dir ~~ ['0','1'] or croak "dir must be 0|1: $r";
-	    $rx = eval "qr{$rx}" || croak "$rx is no valid perl regex";
-	    push @rules, [ $dir,$rxlen, $rx ];
-	}
-    }
-
-    my $max_open = delete $args{max_open} // [];
-    if ( ! ref($max_open)) {
-	$max_open = [ $max_open =~m{(\d+)}g ];
-	m{^\d+$} or $_=undef for(@$max_open);
-    }
+    my @rules = @$rules; # copy because they get modified inside
 
     # set buf to '' for dir where we have rules, else leave undef
     my @buf;
     $buf[$_->[0]] = '' for (@rules);
 
-    my $self = $class->SUPER::new_analyzer(
+    my $ignore_order = delete $args{ignore_order};
+    my $max_open     = delete $args{max_open} // [];
+    my Net::IMP::ProtocolPinning $self = $class->SUPER::new_analyzer(
 	%args,
 
 	# -- internal tracking ---
 	# buffer per direction
 	buf => \@buf,
 	# offset for buffer per direction
-	offset => [0,0],
+	off_buf0 => [0,0],
 	# amount of data not yet forwarded
-	opendata => [0,0],
+	off_not_fwd => [0,0],
 
 	# -- configuration ------
 	# rules as [dir,rxlen,rx],[dir,rxlen,rx],...
 	rules => \@rules,
 	# if true server can send even if we except client data first etc
-	ignore_order => delete $args{ignore_order},
+	ignore_order => $ignore_order,,
 	# maximum number of open data if we have no other rule
 	max_open => $max_open,
     );
@@ -84,9 +61,9 @@ sub data {
     $self->{buf} or return; # we gave already the final reply
 
     if ( ! defined $self->{buf}[$dir] ) {
-	# no rules for $dir, so we don't buffer, but track opendata
+	# no rules for $dir, so we don't buffer, but track off_not_fwd
 	# issue DENY when we have too much data open
-	my $open = $self->{opendata}[$dir] += length($data);
+	my $open = $self->{off_not_fwd}[$dir] += length($data);
 	if ( defined( my $max = $self->{max_open}[$dir])) {
 	    if ( $open>$max ) {
 		$self->{buf} = undef;
@@ -99,8 +76,8 @@ sub data {
 
     # add data to buf
     my $buf = $self->{buf}[$dir] .= $data;
-    $self->{opendata}[$dir] += length($data);
-    $DEBUG && debug("got %d bytes on %d, bufsz=%d", 
+    $self->{off_not_fwd}[$dir] += length($data);
+    $DEBUG && debug("got %d bytes on %d, bufsz=%d",
 	length($data),$dir,length($buf));
 
 
@@ -142,10 +119,11 @@ sub data {
 	# longer than rxlen, e.g. instead of \d+ you should use the more
 	# specific \d{3,10} or so - in any case it will be checked only against
 	# a maximum of rxlen bytes.
-	# The regex should also not match too early, e.g. if the buffer does not
-	# contain rxlen bytes it should not match, if it could match a longer
-	# string when more bytes get added to the buf. E.g. instead of \d{3,10}
-	# you should be more specific: \d{3,9}(?=\D)|\d{10}
+	# The regex should also not match too early.
+	# E.g. if the buffer contains less than rxlen bytes it should not match,
+	# because it might match a longer string later when it gets more bytes.
+	# So instead of a simple \d{3,10} you should be more specific:
+	# \d{3,9}(?=\D)|\d{10}
 
 	my $blen = length($buf);
 	if ( substr($buf,0,$rxlen) =~ m{\A($rx)} ) {
@@ -155,9 +133,9 @@ sub data {
 		$rx,$mlen,$blen,$blen-$mlen);
 	    substr($buf,0,$mlen,'');               # remove match from buf
 	    $self->{buf}[$dir] = $buf;
-	    $self->{offset}[$dir] += $mlen;        # add removed to offset
-	    $self->{opendata}[$dir] -= $mlen;      # remove from opendata
-	    $pass = $self->{offset}[$dir];         # set pass after match
+	    $self->{off_buf0}[$dir] += $mlen;      # add removed to off_buf0
+	    $self->{off_not_fwd}[$dir] -= $mlen;   # remove from off_not_fwd
+	    $pass = $self->{off_buf0}[$dir];       # set pass after match
 	    shift(@$rules);                        # rules passed -> remove
 	    next;                                  # try next rule
 
@@ -191,6 +169,52 @@ sub data {
 	    $self->run_callback([ IMP_PASS,$dir,$pass ]);
 	}
     }
+}
+
+# cfg2str and str2cfg are redefined because our config hash is deeper
+# nested due to rules and max_open
+sub cfg2str {
+    my Net::IMP::ProtocolPinning $self = shift;
+    my $cfg = shift;
+    my %cfg = %$cfg;
+
+    my $rules = delete $cfg{rules} or croak("no rules defined");
+    # re-insert [[dir,rxlen,rx],... ] as dir0,rxlen0,rx0,dir1,...
+    for (my $i=0;$i<@$rules;$i++) {
+	@cfg{ "dir$i","rxlen$i","rx$i" } = @{ $rules->[$i] };
+    }
+    if ( my $max_open = delete $cfg{max_open} ) {
+	# re-insert [mo0,mo1] as max_open0,max_open1
+	@cfg{ 'max_open0', 'max_open1' } = @$max_open;
+    }
+    return $self->SUPER::cfg2str(\%cfg);
+}
+
+sub str2cfg {
+    my Net::IMP::ProtocolPinning $self = shift;
+    my $cfg = $self->SUPER::str2cfg(@_);
+    my $rules = $cfg->{rules} = [];
+    for( my $i=0;1;$i++ ) {
+	defined( my $dir = delete $cfg->{"dir$i"} ) or last;
+	defined( my $rxlen = delete $cfg->{"rxlen$i"} )
+	    or croak("no rxlen$i defined but dir$i");
+	defined( my $rx = delete $cfg->{"rx$i"} )
+	    or croak("no rx$i defined but dir$i");
+	push @$rules, [$dir,$rxlen,$rx];
+    }
+    @$rules or croak("no rules defined");
+    my $max_open = $cfg->{max_open} || [];
+    for(0,1) {
+	$max_open->[$_] = delete $cfg->{"max_open$_"}
+	    if exists $cfg->{"max_open$_"};
+    }
+
+    # sanity check
+    my %scfg = %$cfg;
+    delete @scfg{'rules','max_open','ignore_order'};
+    %scfg and croak("unhandled config keys: ".join(' ',sort keys %scfg));
+
+    return $cfg;
 }
 
 
@@ -238,7 +262,7 @@ specific to this module:
 
 =over 4
 
-=item rules ARRAY|STRING
+=item rules ARRAY
 
 Specifies the rules to use for protocol verification. Rules are in array
 of direction specific rules, e.g. each rule consists of C<[dir,rxlen,rx]> with
@@ -259,31 +283,25 @@ the regular expression itself
 
 =back
 
-To make it easier to integrate into config files one can specify the rules as a
-single string in the form C<!dir1!rxlen1!rx1!!dir2!rxlen2!rx2!!dir3!...>, where
-C<!> is any delimiter the user chooses.
-The only requirements for the delimiter are, that it is the first character in
-the rules string (to find out what the delimiter for the rest will be) and that
-it does not occur in any dir,rxlen or rx value.
-
 =item ignore_order BOOLEAN
 
 If true, it will take the first rule for direction, when data for connection
 arrive.
 If false, it will cause DENY if data arrive from one direction, but the current
-rule is for another direction.
+rule is for the other direction.
 
-=item max_open [SIZE0,SIZE1]|"SIZE0,SIZE1"
+=item max_open [SIZE0,SIZE1]
 
-If there are no active rules for direction, the application needs to buffer
-data, until all rules are matched.
+If there are no more active rules for direction, and ignore_order is true, then
+the application needs to buffer data, until all remaining rules for the other
+direction are matched.
 Using this parameter the amount of buffered data will be limited per
 direction.
 
 If not set a default of unlimited will be used!
 
 To aid setting parameter from configuration, this parameter can be given as
-string with the sizes delimited by a non-digit.
+string with the sizes delimited by ":".
 
 =back
 
@@ -306,7 +324,7 @@ the first active rule for this direction.
 
 If no rule is found for direction, no action will be taken.
 This causes the data to be buffered in the application and they will only be
-released, once all rules are processed.
+released, once all rules have been processed.
 
 To limit the amount of buffered data in this case C<max_open> should be set.
 Buffering more data than C<max_open> for this direction will cause a DENY.
@@ -319,7 +337,7 @@ try to match the first C<rxlen> bytes of the buffer against the rule.
 
 =item *
 
-If the rule matched it will
+If the rule matched, it will
 
 =over 8
 
@@ -364,7 +382,7 @@ C<\d+> one should specify a fixed size with C<\d{1,10}>.
 
 =item *
 
-It should not match too early, e.g. if the match should be up to 10 digits one
+It should not match too early, e.g. if the match should be up to 10 digits, one
 should specify C<\d{1,9}(?=\D)|\d{10}> instead of C<\d{1,10}> because the latter
 one matches already if the buffered data have length 5, all being digits.
 This might be a problem if there is another rule for the direction, which

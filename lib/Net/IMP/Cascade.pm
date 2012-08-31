@@ -25,7 +25,7 @@ use Data::Dumper;
 	IMP_DROP,
 	#IMP_TOSENDER, # not supported yet
 	IMP_LOG,
-	IMP_ACCTFLD,
+	IMP_ACCTFIELD,
     );
 
     # combine all rtypes from the parts
@@ -545,7 +545,7 @@ sub new_analyzer {
 	while ( my $rv = shift(@_)) {
 	    my $rtype = shift(@$rv);
 
-	    if ( $rtype ~~ [ IMP_DENY,IMP_DROP,IMP_ACCTFLD ]) {
+	    if ( $rtype ~~ [ IMP_DENY,IMP_DROP,IMP_ACCTFIELD ]) {
 		# these gets propagated directly up w/o changes
 		$DEBUG && debug("impcb[*][$pi] $rtype @$rv");
 		$wself->run_callback([$rtype,@$rv]);

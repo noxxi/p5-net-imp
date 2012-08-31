@@ -108,7 +108,7 @@ sub _imp_cb {
 	    my ($dir,$offset,$len,$level,$msg) = @$rv;
 	    $self->log($level,$msg,$dir,$offset,$len);
 
-	} elsif ( $rtype == IMP_ACCTFLD ) {
+	} elsif ( $rtype == IMP_ACCTFIELD ) {
 	    my ($key,$value) = @$rv;
 	    $self->acctfld($key,$value);
 
@@ -212,6 +212,6 @@ this gets called on IMP_LOG
 
 =item acctfld($self,$key,$value)
 
-this gets called on IMP_ACCTFLD
+this gets called on IMP_ACCTFIELD
 
 =back
