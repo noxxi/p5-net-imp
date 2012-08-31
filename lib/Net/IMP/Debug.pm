@@ -93,7 +93,7 @@ Net::IMP::Debug - provide debugging functions
     # or integrate it into existing debugging framework
     # $myDebug needs to be global, not lexical!
     use myDebug qw(my_debug $myDEBUG);
-    use Net::IMP var => \$myDEBUG, sub => \&my_debug;
+    use Net::IMP::Debug var => \$myDEBUG, sub => \&my_debug;
 
 =head1 DESCRIPTION
 

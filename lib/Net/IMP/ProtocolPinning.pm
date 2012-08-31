@@ -203,7 +203,7 @@ sub str2cfg {
 	push @$rules, [$dir,$rxlen,$rx];
     }
     @$rules or croak("no rules defined");
-    my $max_open = $cfg->{max_open} || [];
+    my $max_open = $cfg->{max_open} = [];
     for(0,1) {
 	$max_open->[$_] = delete $cfg->{"max_open$_"}
 	    if exists $cfg->{"max_open$_"};

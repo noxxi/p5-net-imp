@@ -57,8 +57,8 @@ sub cfg2str {
     return join('&', map {
 	my $v = $cfg->{$_};
 	# only encode really necessary stuff
-	s{([=&%\x00-\x20\x7f-\xff])}{ sprintf("%%02X",ord($1)) }eg; # key
-	s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%02X",ord($1)) }eg;  # value
+	s{([=&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # key
+	$v =~s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # value
 	"$_=$v"
     } sort keys %$cfg);
 }
