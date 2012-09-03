@@ -29,33 +29,59 @@ sub USED_RTYPES {
     return @rv;
 };
 
+sub validate_cfg {
+    my ($class,%args) = @_;
+
+    my @err;
+    my $rx = delete $args{rx};
+    my $string = delete $args{string};
+    my $rxdir = delete $args{rxdir};
+
+    if ($rx) {
+	my $rxlen = delete $args{rxlen};
+	push @err, "rxlen must be given and >0" unless
+	    $rxlen and $rxlen =~m{^\d+$} and $rxlen>0;
+	if ( ! ref $rx ) {
+	    $rx = eval { qr/$rx/ };
+	    push @err, "rx is no valid regex: $@" if ! $rx;
+	}
+	if ( ref($rx) ne 'Regexp' ) {
+	    push @err, "rx must be regex" if ref($rx) ne 'Regexp'
+	} elsif ( '' =~ $rx ) {
+	    push @err,"rx should not match empty string"
+	}
+
+    }
+
+    if ( defined $string ) {
+	push @err, "only rx or string should be given, not both" if $rx;
+    } elsif ( ! $rx ) {
+	push @err, "rx+rxlen or string need to be given for pattern";
+    }
+
+    push @err, "rxdir must be 0|1" if defined $rxdir and not $rxdir ~~ [0,1];
+
+    push @err, "action can only be deny|reject|replace"
+	unless delete($args{action}) ~~ [qw(deny reject replace)];
+
+    push @err, $class->SUPER::validate_cfg(%args);
+    return @err;
+}
+
+
 # create new analyzer object
 sub new_analyzer {
     my ($class,%args) = @_;
 
     my ($rx,$rxlen);
     if ( $rx = delete $args{rx} ) {
-	defined $args{string} and croak(
-	    "only rx or string can be specified, not both");
-	$rxlen = delete $args{rxlen} or croak(
-	    "need to know the maximum length the pattern could match");
-	$rxlen>0 or croak("rxlen must be >0");
-	$rx = eval { qr/$rx/ } or croak("'$rx' is no valid regex: $@")
-	    if ! ref $rx;
-	ref($rx) eq 'Regexp' or croak("rx must be regex");
-
-	# make sure that rx does not match empty string
-	'' =~ $rx and croak("rx should not match empty string");
-
-    } elsif ( ( $rx = delete $args{string} ) ne '' ) {
+	$rx = eval { qr/$rx/ } if ! ref $rx;
+	$rxlen = delete $args{rxlen};
+    } else {
+	$rx = delete $args{string};
 	$rxlen = length($rx);
 	$rx = qr/\Q$rx/;
-    } else {
-	croak("rx+rxlen or string need to be given for pattern");
     }
-
-    $args{action} ~~ [qw(deny reject replace)] or croak(
-	"action can only be deny|reject|replace");
 
     my Net::IMP::Pattern $self = $class->SUPER::new_analyzer(
 	%args, # rxdir, actdata, action, cb, meta

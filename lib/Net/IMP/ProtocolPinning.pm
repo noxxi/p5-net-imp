@@ -18,21 +18,50 @@ use Carp 'croak';
 
 sub USED_RTYPES { (IMP_PASS,IMP_DENY) }
 
+sub validate_cfg {
+    my ($class,%args) = @_;
+
+    my @err;
+    if ( my $r = delete $args{rules} ) {
+	# make sure that no rule matches empty string
+	for(my $i=0;$i<@$r;$i++) {
+	    push @err,"rule$i.dir must be 0|1" unless
+		defined $r->[$i]{dir} and
+		$r->[$i]{dir} ~~ [0,1];
+	    push @err,"rule$i.rxlen must be >0" unless
+		$r->[$i]{rxlen} and
+		$r->[$i]{rxlen} =~m{^\d+$} and
+		$r->[$i]{rxlen}>0;
+	    push @err,"rule$i.rx should not match empty string"
+		if '' =~ $r->[$i]{rx};
+	}
+    } else {
+	push @err,"rules need to be given";
+    }
+
+    if ( my $max_unbound  = delete $args{max_unbound} ) {
+	push @err,"max_unbound should be [max0,max1]" if @$max_unbound>2;
+	for(0,1) {
+	    defined $max_unbound->[$_] or next;
+	    push @err, "max_unbound[$_] should be number >=0"
+		if $max_unbound->[$_] !~m{^\d+$};
+	}
+    }
+
+    push @err,$class->SUPER::validate_cfg(%args);
+    return @err;
+}
+
 # create new analyzer object
 sub new_analyzer {
     my ($class,%args) = @_;
 
-    my $rules = delete $args{rules} or croak("rules need to be given");
+    my $rules = delete $args{rules} or croak("no rules given");
     my @rules = @$rules; # copy because they get modified inside
 
     # set buf to '' for dir where we have rules, else leave undef
     my @buf;
     $buf[$_->{dir}] = '' for (@rules);
-
-    # make sure that no rule matches empty string
-    for(@rules) {
-	'' =~ $_->{rx} and croak("regex '$_->{rx}' matches empty string");
-    }
 
     my $ignore_order = delete $args{ignore_order};
     my $max_unbound  = delete $args{max_unbound} // [];
@@ -205,8 +234,6 @@ sub str2cfg {
 	    or croak("no rxlen$i defined but dir$i");
 	defined( my $rx = delete $cfg{"rx$i"} )
 	    or croak("no rx$i defined but dir$i");
-	# make sure that rule does not match empty string
-	'' =~ $rx and croak("regex '$rx' matches empty string");
 	push @$rules, { dir => $dir, rxlen => $rxlen, rx => $rx };
 
 

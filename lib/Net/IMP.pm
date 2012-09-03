@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.2_3;
+our $VERSION = 0.24;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -129,7 +129,10 @@ Net::IMP - Inspection and Modification Protocol
     }
 
     package main;
-    my $factory = mySessionLog->new_factory(...);
+    if (my @err = mySessionLog->validate_cfg(%config)) {
+	die "@err"
+    }
+    my $factory = mySessionLog->new_factory(%config);
     # calls mySessionLog->new_analyzer
     my $analyzer = $factory->new_analyzer(...);
     $analyzer->set_callback(\&imp_cb);

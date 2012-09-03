@@ -78,18 +78,24 @@ my @tests = (
 plan tests => @tests - keys(%only);
 
 my (%test,$out);
-for(my $i=0;$i<@tests;$i++) {
+TEST: for(my $i=0;$i<@tests;$i++) {
     %test = ( %test,%{$tests[$i]} ); # redefine parts of previous
     next if %only && ! $only{$i};
 
     my @m;
     for (@{ $test{mod} }) {
-	push @m, Net::IMP::Pattern->new_factory(
+	my %config = (
 	    rx       => $_->[0],
 	    rxlen    => $_->[1],
 	    action   => $_->[2],
 	    actdata  => $_->[3]
 	);
+	if ( my @err = Net::IMP::Pattern->validate_cfg(%config) ) {
+	    fail("config[$i] not valid");
+	    diag( "@err");
+	    next TEST;
+	}
+	push @m, Net::IMP::Pattern->new_factory(%config);
     }
 
     my $analyzer = Net::IMP::Cascade->new_factory( parts => \@m );

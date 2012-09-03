@@ -77,6 +77,10 @@ sub str2cfg {
     return %cfg;
 }
 
+sub validate_cfg {
+    return ();
+}
+
 1;
 __END__
 
@@ -207,6 +211,17 @@ If you don't want this, remove these results upfront with C<poll_results>.
 This will return the current C<@results> and remove them from collected
 results.
 It will only be used from the caller of the analyzer if no callback is set.
+
+=back
+
+Also a method is defined to check configuration:
+
+=over 4
+
+=item $class->validate_cfg(%config)
+
+This will return a list of errors with the config, e.g. it will return an
+empty list if no errors where detected.
 
 =back
 

@@ -95,11 +95,19 @@ for(my $i=0;$i<@tests;$i++) {
 	push @rv,@_
     };
 
-    my $analyzer = Net::IMP::ProtocolPinning->new_factory(
+    my %config = (
 	rules        => $test{rules},
 	max_unbound  => $test{max_unbound},
 	ignore_order => $test{ignore_order},
-    )->new_analyzer( cb => [$cb] );
+    );
+    if ( my @err = Net::IMP::ProtocolPinning->validate_cfg(%config) ) {
+	fail("config[$i] not valid");
+	diag("@err");
+	next;
+    }
+
+    my $analyzer = Net::IMP::ProtocolPinning->new_factory(%config)
+	->new_analyzer( cb => [$cb] );
 
     for( @{$test{in}} ) {
 	my ($dir,$data) = @$_;

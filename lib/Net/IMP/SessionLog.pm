@@ -22,6 +22,24 @@ sub new_factory {
     return $class->SUPER::new_factory(%args);
 }
 
+sub validate_cfg {
+    my ($class,%args) = @_;
+    my @err;
+    my $fmt = delete $args{format} || 'bin';
+    if ( $fmt eq 'pcap' ) {
+	push @err, "cannot load Net::PcapWriter needed for format pcap"
+	    if ! eval "require 'Net::PcapWriter'";
+    } elsif ( $fmt ne 'bin' ) {
+	push @err, "format should be bin or pcap"
+    }
+
+    my $dir = $args{dir};
+    push @err, "no dir given" if ! $dir;
+
+    push @err,$class->SUPER::validate_cfg(%args);
+    return @err;
+}
+
 # create new context object
 #  - open log file
 #  - prepare initial and only results (PREPASS in both directions)
@@ -29,8 +47,7 @@ sub new_analyzer {
     my ($class,%args) = @_;
 
     my $fmt  = $args{format} || 'bin';
-    if ( $fmt ne 'bin' ) {
-	$fmt eq 'pcap' or croak "format should be bin or pcap";
+    if ( $fmt eq 'pcap' ) {
 	eval "require 'Net::PcapWriter'" or croak
 	    "cannot load Net::PcapWriter needed for format pcap";
     }
@@ -97,8 +114,8 @@ Net::IMP::SessionLog - analyzer which only logs data
 
 =head1 DESCRIPTION
 
-C<Net::IMP::SessionLog> implements an analyzer which logs the session data into a
-file. To be less burden to the connection it will initially return IMP_PREPASS
+C<Net::IMP::SessionLog> implements an analyzer which logs the session data into
+a file. To be less burden to the connection it will initially return IMP_PREPASS
 with IMP_MAXOFFSET for both directions, which will cause all data to be
 forwarded before they get send to the session logger.
 
