@@ -24,7 +24,7 @@ sub validate_cfg {
     my @err;
     if ( my $r = delete $args{rules} ) {
 	# make sure that no rule matches empty string
-	for(my $i=0;$i<@$r;$i++) {
+	for (my $i=0;$i<@$r;$i++) {
 	    push @err,"rule$i.dir must be 0|1" unless
 		defined $r->[$i]{dir} and
 		$r->[$i]{dir} ~~ [0,1];
@@ -32,6 +32,8 @@ sub validate_cfg {
 		$r->[$i]{rxlen} and
 		$r->[$i]{rxlen} =~m{^\d+$} and
 		$r->[$i]{rxlen}>0;
+	    push @err,"rule$i.rx should be regex"
+		if ref($r->[$i]{rx}) ne 'Regexp';
 	    push @err,"rule$i.rx should not match empty string"
 		if '' =~ $r->[$i]{rx};
 	}
@@ -41,7 +43,7 @@ sub validate_cfg {
 
     if ( my $max_unbound  = delete $args{max_unbound} ) {
 	push @err,"max_unbound should be [max0,max1]" if @$max_unbound>2;
-	for(0,1) {
+	for (0,1) {
 	    defined $max_unbound->[$_] or next;
 	    push @err, "max_unbound[$_] should be number >=0"
 		if $max_unbound->[$_] !~m{^\d+$};
@@ -132,7 +134,7 @@ sub data {
 	    }
 
 	    # if we have a rule for $dir bring it to front of @$rules and retry
-	    for( my $i=0;$i<@$rules;$i++ ) {
+	    for ( my $i=0;$i<@$rules;$i++ ) {
 		if ( $rules->[$i]{dir} == $dir ) {
 		    unshift @$rules, splice( @$rules,$i,1 );
 		    redo RULE;
@@ -228,19 +230,20 @@ sub str2cfg {
     my Net::IMP::ProtocolPinning $self = shift;
     my %cfg = $self->SUPER::str2cfg(@_);
     my $rules = $cfg{rules} = [];
-    for( my $i=0;1;$i++ ) {
+    for ( my $i=0;1;$i++ ) {
 	defined( my $dir = delete $cfg{"dir$i"} ) or last;
 	defined( my $rxlen = delete $cfg{"rxlen$i"} )
 	    or croak("no rxlen$i defined but dir$i");
 	defined( my $rx = delete $cfg{"rx$i"} )
 	    or croak("no rx$i defined but dir$i");
+	$rx = eval { qr/$rx/ } or croak("invalid regex rx$i");
 	push @$rules, { dir => $dir, rxlen => $rxlen, rx => $rx };
 
 
     }
     @$rules or croak("no rules defined");
     my $max_unbound = $cfg{max_unbound} = [];
-    for(0,1) {
+    for (0,1) {
 	$max_unbound->[$_] = delete $cfg{"max_unbound$_"}
 	    if exists $cfg{"max_unbound$_"};
     }

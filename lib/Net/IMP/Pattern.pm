@@ -41,10 +41,6 @@ sub validate_cfg {
 	my $rxlen = delete $args{rxlen};
 	push @err, "rxlen must be given and >0" unless
 	    $rxlen and $rxlen =~m{^\d+$} and $rxlen>0;
-	if ( ! ref $rx ) {
-	    $rx = eval { qr/$rx/ };
-	    push @err, "rx is no valid regex: $@" if ! $rx;
-	}
 	if ( ref($rx) ne 'Regexp' ) {
 	    push @err, "rx must be regex" if ref($rx) ne 'Regexp'
 	} elsif ( '' =~ $rx ) {
@@ -73,9 +69,9 @@ sub validate_cfg {
 sub new_analyzer {
     my ($class,%args) = @_;
 
-    my ($rx,$rxlen);
-    if ( $rx = delete $args{rx} ) {
-	$rx = eval { qr/$rx/ } if ! ref $rx;
+    my $rxlen;
+    my $rx = delete $args{rx};
+    if ($rx) {
 	$rxlen = delete $args{rxlen};
     } else {
 	$rx = delete $args{string};
@@ -226,6 +222,16 @@ sub data {
     }
 }
 
+sub str2cfg {
+    my ($class,$str) = @_;
+    my %cfg = $class->SUPER::str2cfg($str);
+    if ($cfg{rx}) {
+	$cfg{rx} = eval { qr/$cfg{rx}/ }
+	    or croak("'$cfg{rx}' is no valid regex");
+    }
+    return %cfg;
+}
+
 
 1;
 
@@ -255,8 +261,7 @@ C<new_analyzer>.
 
 =item rx Regex
 
-The regular expression, either as Regexp or as a string which will be
-interpreted as a regular expression.
+The regular expression (as Regexp).
 
 C<rx> should only match up to the number of bytes specified by C<rxlen>, e.g.
 regular expressions like C</\d+/> should be avoided, better use C</\d{1,10}/>.

@@ -70,7 +70,7 @@ sub str2cfg {
     my %cfg;
     for my $kv (split('&',$str)) {
 	my ($k,$v) = split('=',$kv,2);
-	s{%([\dA-F][\dA-F]])}{ chr(hex($1)) }ieg for ($k,$v);
+	s{%([\dA-F][\dA-F])}{ chr(hex($1)) }ieg for ($k,$v);
 	exists $cfg{$k} and croak "duplicate definition for key $k";
 	$cfg{$k} = $v;
     }
