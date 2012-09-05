@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.27;
+our $VERSION = 0.28;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -39,7 +39,7 @@ my @log_levels = qw(
     IMP_LOG_EMERG
 );
 our @EXPORT_OK = @log_levels;
-our @EXPORT_TAGS = ( ':log' => \@log_levels );
+our %EXPORT_TAGS = ( log => \@log_levels );
 
 # the numerical order of the constants describes priority when
 # cascading modules, e.g. replacement has a higher value then
