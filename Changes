@@ -1,3 +1,5 @@
+0.27 2012/9/5
+- added in 0.26 forgotten IMP_LOG_ERR
 0.26 2012/9/5
 - defined constants for IMP_LOG levels, similar to syslog levels
 0.25 2012/9/4

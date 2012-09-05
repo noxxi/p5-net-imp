@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.26;
+our $VERSION = 0.27;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -33,6 +33,7 @@ my @log_levels = qw(
     IMP_LOG_INFO
     IMP_LOG_NOTICE
     IMP_LOG_WARNING
+    IMP_LOG_ERR
     IMP_LOG_CRIT
     IMP_LOG_ALERT
     IMP_LOG_EMERG
@@ -71,6 +72,7 @@ use constant IMP_LOG_DEBUG    => dualvar(1,'debug');
 use constant IMP_LOG_INFO     => dualvar(2,'info');
 use constant IMP_LOG_NOTICE   => dualvar(3,'notice');
 use constant IMP_LOG_WARNING  => dualvar(3,'warning');
+use constant IMP_LOG_ERR      => dualvar(3,'error');
 use constant IMP_LOG_CRIT     => dualvar(3,'critical');
 use constant IMP_LOG_ALERT    => dualvar(3,'alert');
 use constant IMP_LOG_EMERG    => dualvar(3,'emergeny');
