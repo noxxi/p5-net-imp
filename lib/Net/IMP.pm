@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.25;
+our $VERSION = 0.26;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -27,6 +27,18 @@ our @EXPORT = qw(
     IMP_ACCTFIELD
     IMP_MAXOFFSET
 );
+
+my @log_levels = qw(
+    IMP_LOG_DEBUG
+    IMP_LOG_INFO
+    IMP_LOG_NOTICE
+    IMP_LOG_WARNING
+    IMP_LOG_CRIT
+    IMP_LOG_ALERT
+    IMP_LOG_EMERG
+);
+our @EXPORT_OK = @log_levels;
+our @EXPORT_TAGS = ( ':log' => \@log_levels );
 
 # the numerical order of the constants describes priority when
 # cascading modules, e.g. replacement has a higher value then
@@ -53,6 +65,15 @@ use constant IMP_MAXOFFSET    => (
     (1<<63)-1              # 63bit on 64bit systems with signed int
 );
 
+# log levels for IMP_LOG
+# these are modeled analog to syslog levels
+use constant IMP_LOG_DEBUG    => dualvar(1,'debug');
+use constant IMP_LOG_INFO     => dualvar(2,'info');
+use constant IMP_LOG_NOTICE   => dualvar(3,'notice');
+use constant IMP_LOG_WARNING  => dualvar(3,'warning');
+use constant IMP_LOG_CRIT     => dualvar(3,'critical');
+use constant IMP_LOG_ALERT    => dualvar(3,'alert');
+use constant IMP_LOG_EMERG    => dualvar(3,'emergeny');
 
 
 # no response types in default implementation
@@ -387,9 +408,9 @@ C<$level> might specify a log level like debug, info, warn... .
 
 The caller should just log the information in this case.
 
-TODO: details for C<$level> are not specified yet.
-They need somewhow to fit into the callers idea of log levels.
-
+C<$level> is one of LOG_IMP_*, which are similar to syslog levels,
+e.g. IMP_LOG_DEBUG, IMP_LOG_INFO,...
+These level constants can be imported with C<< use Net::IMP ':log' >>.
 
 =item [ IMP_PORT_OPEN|IMP_PORT_CLOSE, $dir, $offset, ... ]
 
