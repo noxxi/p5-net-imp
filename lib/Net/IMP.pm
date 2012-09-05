@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.28;
+our $VERSION = 0.29;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -75,7 +75,7 @@ use constant IMP_LOG_WARNING  => dualvar(3,'warning');
 use constant IMP_LOG_ERR      => dualvar(3,'error');
 use constant IMP_LOG_CRIT     => dualvar(3,'critical');
 use constant IMP_LOG_ALERT    => dualvar(3,'alert');
-use constant IMP_LOG_EMERG    => dualvar(3,'emergeny');
+use constant IMP_LOG_EMERG    => dualvar(3,'emergency');
 
 
 # no response types in default implementation
