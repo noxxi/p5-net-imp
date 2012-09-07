@@ -1,3 +1,5 @@
+0.31 2012/9/7
+- fix IMP_MAXOFFSET for 32bit systems
 0.30 2012/9/5
 - fix integer in dualvar IMP_LOG_*, was mostly 3 :(
 0.29 2012/9/5

@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.30;
+our $VERSION = 0.31;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -62,7 +62,7 @@ use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 
 use constant IMP_MAXOFFSET    => (
-    (1<<32) == 1 ? 2^50 :  # max 53bit on 32bit systems with FP
+    (1<<32) == 1 ? 2**50 : # max 53bit on 32bit systems with FP
     (1<<63)-1              # 63bit on 64bit systems with signed int
 );
 
