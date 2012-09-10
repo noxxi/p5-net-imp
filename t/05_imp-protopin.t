@@ -78,7 +78,27 @@ my @tests = (
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
-    }
+    }, {
+	max_unbound => [0,0],
+	rules => [
+	    { dir => 0, rxlen => 12, rx => qr/cloud(ella)?(ria)?/ },
+	    { dir => 1, rxlen => 1, rx => qr/./ }
+	],
+	in => [
+	    [ 0,'clou' ],
+	    [ 0,'de' ],
+	    [ 0,'llar' ],
+	    [ 0,'iad' ],
+	    [ 1,'foo' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,5 ],
+	    [ IMP_PASS,0,9 ],
+	    [ IMP_PASS,0,12 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
 
 );
 

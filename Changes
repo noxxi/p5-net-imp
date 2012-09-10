@@ -1,3 +1,8 @@
+0.33 2012/9/10
+- Net::IMP::ProtocolPinning can now deal with regexes like /foo(bar)?/.
+  It will no longer stop on the first match and thus depend on the
+  chunking of the data, but try to match up to rxlen. Matched
+  data will be passed immediatly.
 0.32 2012/9/10
 - Net::IMP::Base::validate_cfg returns error if it gets (unexpected) args
 - make t/06_cfg2str.t work with perl versions < 5.14
