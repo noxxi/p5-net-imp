@@ -1,3 +1,6 @@
+0.32 2012/9/10
+- Net::IMP::Base::validate_cfg returns error if it gets (unexpected) args
+- make t/06_cfg2str.t work with perl versions < 5.14
 0.31 2012/9/7
 - fix IMP_MAXOFFSET for 32bit systems
 0.30 2012/9/5

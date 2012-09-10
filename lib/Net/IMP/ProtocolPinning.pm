@@ -50,6 +50,8 @@ sub validate_cfg {
 	}
     }
 
+    delete $args{ignore_order}; # boolean, no further checks
+
     push @err,$class->SUPER::validate_cfg(%args);
     return @err;
 }

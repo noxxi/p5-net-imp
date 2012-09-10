@@ -78,7 +78,8 @@ sub str2cfg {
 }
 
 sub validate_cfg {
-    return ();
+    my (undef,%cfg) = @_;
+    return %cfg ? "unexpected config keys ".join(', ',keys %cfg) : ();
 }
 
 1;

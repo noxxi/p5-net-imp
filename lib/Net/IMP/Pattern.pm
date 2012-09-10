@@ -57,8 +57,10 @@ sub validate_cfg {
 
     push @err, "rxdir must be 0|1" if defined $rxdir and not $rxdir ~~ [0,1];
 
-    push @err, "action can only be deny|reject|replace"
-	unless delete($args{action}) ~~ [qw(deny reject replace)];
+    my $act = delete $args{action};
+    push @err, "action can only be deny|reject|replace" unless
+	$act and $act ~~ [qw(deny reject replace)];
+    push @err, "action $act needs actdata" if ! defined(delete $args{actdata});
 
     push @err, $class->SUPER::validate_cfg(%args);
     return @err;
@@ -227,7 +229,7 @@ sub str2cfg {
     my %cfg = $class->SUPER::str2cfg($str);
     if ($cfg{rx}) {
 	$cfg{rx} = eval { qr/$cfg{rx}/ }
-	    or croak("'$cfg{rx}' is no valid regex");
+	    || croak("'$cfg{rx}' is no valid regex");
     }
     return %cfg;
 }
