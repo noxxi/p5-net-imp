@@ -118,6 +118,10 @@ sub data {
 	# no (more) rules for dir
 	die "there should be other rules" if ! @$o_rules; # sanity check
 
+	# shutdown but no rules is ok
+	# other side might still send more data to match open rules
+	return if $data eq '';
+
 	if ( ! $self->{ignore_order} ) {
 	    # we have unmatched rules in the other dir, thus consider
 	    # data from this side a protocol violation
@@ -258,6 +262,15 @@ sub data {
 		"need more data", $rx,$blen,$rxlen);
 	    last;
 	}
+    }
+
+    if ( $data eq '' and @$rules and
+	( @$rules>1 or not $rules->[0]{matched} )) {
+	# eof but we have still open rules
+	# consider early close as protocol violation
+	$self->{buf} = undef;
+	$self->run_callback([ IMP_DENY,$dir,'eof but unmatched rules' ]);
+	return;
     }
 
     if ( ! @$rules || @$rules == 1 && $rules->[0]{matched}

@@ -117,6 +117,11 @@ my @tests = (
 	rules => [ { dir => 1, rxlen => 1, rx => qr/./ } ],
 	in => [[0,'foo']],
 	rv => [[IMP_DENY, 0, 'data from wrong side' ]],
+    },
+    {
+	rules => [ { dir => 1, rxlen => 2, rx => qr/../ } ],
+	in => [[1,'X'],[1,'']],
+	rv => [[IMP_DENY, 1, 'eof but unmatched rules' ]],
     }
 
 );
