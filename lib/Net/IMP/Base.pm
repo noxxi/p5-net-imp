@@ -58,8 +58,12 @@ sub cfg2str {
 	my $v = $cfg{$_};
 	# only encode really necessary stuff
 	s{([=&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # key
-	$v =~s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # value
-	"$_=$v"
+	if ( defined $v ) {
+	    $v =~s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # value
+	    "$_=$v"
+	} else {
+	    "$_"
+	}
     } sort keys %cfg);
 }
 
@@ -69,9 +73,10 @@ sub str2cfg {
     my $str = shift;
     my %cfg;
     for my $kv (split('&',$str)) {
-	my ($k,$v) = split('=',$kv,2);
-	s{%([\dA-F][\dA-F])}{ chr(hex($1)) }ieg for ($k,$v);
+	my ($k,$v) = $kv =~m{^([^=]+)(?:=(.*))?};
+	$k =~s{%([\dA-F][\dA-F])}{ chr(hex($1)) }ieg;
 	exists $cfg{$k} and croak "duplicate definition for key $k";
+	$v =~s{%([\dA-F][\dA-F])}{ chr(hex($1)) }ieg if defined $v;
 	$cfg{$k} = $v;
     }
     return %cfg;

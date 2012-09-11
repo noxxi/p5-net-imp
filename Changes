@@ -1,3 +1,5 @@
+0.37 2012/9/11
+- Net::IMP::Base - make undef value work in cfg2str, str2cfg
 0.36 2012/9/11
 - Net::IMP::ProtocolPinning:
   - reverted 0.34 and make consecutive rules for the direction work
