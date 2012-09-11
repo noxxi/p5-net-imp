@@ -111,6 +111,12 @@ my @tests = (
 	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
 	in => [[0,'toorToor']],
 	rv => [[IMP_DENY, 0, 'rule did not match' ]],
+    },
+    {
+	ignore_order => 0,
+	rules => [ { dir => 1, rxlen => 1, rx => qr/./ } ],
+	in => [[0,'foo']],
+	rv => [[IMP_DENY, 0, 'data from wrong side' ]],
     }
 
 );

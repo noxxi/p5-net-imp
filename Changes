@@ -1,3 +1,6 @@
+0.38 2012/9/11
+- Net::IMP::ProtocolPinning: fix protocol violation on data from wrong
+  side if there is only a rule for the other side
 0.37 2012/9/11
 - Net::IMP::Base - make undef value work in cfg2str, str2cfg
 0.36 2012/9/11

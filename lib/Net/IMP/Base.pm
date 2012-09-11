@@ -58,8 +58,8 @@ sub cfg2str {
 	my $v = $cfg{$_};
 	# only encode really necessary stuff
 	s{([=&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # key
-	if ( defined $v ) {
-	    $v =~s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg; # value
+	if ( defined $v ) { # value
+	    $v =~s{([&%\x00-\x20\x7f-\xff])}{ sprintf("%%%02X",ord($1)) }eg;
 	    "$_=$v"
 	} else {
 	    "$_"

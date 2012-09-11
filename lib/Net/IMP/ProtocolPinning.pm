@@ -110,8 +110,23 @@ sub data {
 
     $self->{buf} or return; # we gave already the final reply
 
-    if ( ! defined $self->{buf}[$dir] ) {
-	# no rules for $dir, so we don't buffer, but track off_not_fwd
+    my $rules = $self->{rules}[$dir];
+    my $o_dir = $dir ? 0:1;
+    my $o_rules = $self->{rules}[$o_dir];
+
+    if ( ! @$rules ) {
+	# no (more) rules for dir
+	die "there should be other rules" if ! @$o_rules; # sanity check
+
+	if ( ! $self->{ignore_order} ) {
+	    # we have unmatched rules in the other dir, thus consider
+	    # data from this side a protocol violation
+	    $self->{buf} = undef;
+	    $self->run_callback( [ IMP_DENY,$dir,'data from wrong side' ]);
+	    return;
+	}
+
+	# we don't need to buffer data, only track off_not_fwd
 	# issue DENY when we have too much data open
 	my $open = $self->{off_not_fwd}[$dir] += length($data);
 	if ( defined( my $max = $self->{max_unbound}[$dir])) {
@@ -134,9 +149,6 @@ sub data {
     # will cause IMP_PASS if rule matched
     my $pass;
 
-    my $rules = $self->{rules}[$dir];
-    my $o_dir = $dir ? 0:1;
-    my $o_rules = $self->{rules}[$o_dir];
 
     RULE: while ( @$rules and $buf ne '' ) {
 	my ($rxlen,$rx,$pos,$matched) =
@@ -205,7 +217,7 @@ sub data {
 	    if ( ! $rule_done and @$rules>1
 		and $self->{ignore_order} || $rules->[1]{pos} == $pos+1 ) {
 		my $next_rule = $rules->[1];
-		if ( substr($buf,$mlen,$next_rule->{rxlen}) 
+		if ( substr($buf,$mlen,$next_rule->{rxlen})
 		    =~m{\A$next_rule->{rx}} ) {
 		    $DEBUG && debug("rule done because next rule matched");
 		    $rule_done = 1;
@@ -448,7 +460,7 @@ If the rule matched and cannot match more (rxlen reached), it will
 
 =back
 
-If the rule might still match more data  it will still issue a PASS for the 
+If the rule might still match more data  it will still issue a PASS for the
 matched data, but wait with the other things until the rule is definitly done.
 
 =item *
