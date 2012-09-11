@@ -1,3 +1,7 @@
+0.34 2012/9/11
+- Net::IMP::ProtocolPinning::validate_cfg enforces, that no mergable rules
+  (e.g. consecutive rules for same direction or more than one rule for
+  each dir but ignore_order) are allowed
 0.33 2012/9/10
 - Net::IMP::ProtocolPinning can now deal with regexes like /foo(bar)?/.
   It will no longer stop on the first match and thus depend on the

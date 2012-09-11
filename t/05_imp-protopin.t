@@ -39,10 +39,13 @@ my @tests = (
 	],
 	rv => [[IMP_DENY, 1, 'data from wrong side' ]],
     },{
+	rules => [
+	    { dir => 0, rxlen => 4, rx => qr/affe/ },
+	    { dir => 1, rxlen => 4, rx => qr/hund/ },
+	],
 	ignore_order => 1,
 	rv => [
 	    [ IMP_PASS,1,4 ],
-	    [ IMP_PASS,0,4 ],
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],

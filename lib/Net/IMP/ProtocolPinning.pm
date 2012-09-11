@@ -21,13 +21,26 @@ sub USED_RTYPES { (IMP_PASS,IMP_DENY) }
 sub validate_cfg {
     my ($class,%args) = @_;
 
+    # boolean, no further checks
+    my $ignore_order = delete $args{ignore_order}; 
+
     my @err;
     if ( my $r = delete $args{rules} ) {
-	# make sure that no rule matches empty string
+	# restrictions on rules:
+	# - no rule should match empty string
+	# - if ! ignore_order no consecutive rules should be for the same dir
+	# - if ignore_order there should be at most one rule for each dir
+	my @idir; # pos last rule of dir
 	for (my $i=0;$i<@$r;$i++) {
-	    push @err,"rule$i.dir must be 0|1" unless
-		defined $r->[$i]{dir} and
-		$r->[$i]{dir} ~~ [0,1];
+	    if ( defined $r->[$i]{dir} and $r->[$i]{dir} ~~ [0,1] ) {
+		my $lastpos = $idir[ $r->[$i]{dir} ];
+		push @err, "rule$i should be merged with rule$lastpos" if 
+		    defined $lastpos and 
+		    $i - $lastpos == 1 || $ignore_order;
+		$idir[ $r->[$i]{dir} ] = $i;
+	    } else {
+		push @err,"rule$i.dir must be 0|1"
+	    }
 	    push @err,"rule$i.rxlen must be >0" unless
 		$r->[$i]{rxlen} and
 		$r->[$i]{rxlen} =~m{^\d+$} and
@@ -49,8 +62,6 @@ sub validate_cfg {
 		if $max_unbound->[$_] !~m{^\d+$};
 	}
     }
-
-    delete $args{ignore_order}; # boolean, no further checks
 
     push @err,$class->SUPER::validate_cfg(%args);
     return @err;
@@ -362,6 +373,10 @@ the length of data the regular expression might match
 the regular expression itself
 
 =back
+
+Consecutive rules for the same direction are not allowed and should be merged.
+Also, if C<ignore_order> is true there must be at most one rule for each
+direction.
 
 =item ignore_order BOOLEAN
 
