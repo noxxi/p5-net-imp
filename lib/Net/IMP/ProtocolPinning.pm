@@ -21,26 +21,13 @@ sub USED_RTYPES { (IMP_PASS,IMP_DENY) }
 sub validate_cfg {
     my ($class,%args) = @_;
 
-    # boolean, no further checks
-    my $ignore_order = delete $args{ignore_order}; 
-
     my @err;
     if ( my $r = delete $args{rules} ) {
-	# restrictions on rules:
-	# - no rule should match empty string
-	# - if ! ignore_order no consecutive rules should be for the same dir
-	# - if ignore_order there should be at most one rule for each dir
-	my @idir; # pos last rule of dir
+	# make sure that no rule matches empty string
 	for (my $i=0;$i<@$r;$i++) {
-	    if ( defined $r->[$i]{dir} and $r->[$i]{dir} ~~ [0,1] ) {
-		my $lastpos = $idir[ $r->[$i]{dir} ];
-		push @err, "rule$i should be merged with rule$lastpos" if 
-		    defined $lastpos and 
-		    $i - $lastpos == 1 || $ignore_order;
-		$idir[ $r->[$i]{dir} ] = $i;
-	    } else {
-		push @err,"rule$i.dir must be 0|1"
-	    }
+	    push @err,"rule$i.dir must be 0|1" unless
+		defined $r->[$i]{dir} and
+		$r->[$i]{dir} ~~ [0,1];
 	    push @err,"rule$i.rxlen must be >0" unless
 		$r->[$i]{rxlen} and
 		$r->[$i]{rxlen} =~m{^\d+$} and
@@ -62,6 +49,8 @@ sub validate_cfg {
 		if $max_unbound->[$_] !~m{^\d+$};
 	}
     }
+
+    delete $args{ignore_order}; # boolean, no further checks
 
     push @err,$class->SUPER::validate_cfg(%args);
     return @err;
@@ -203,9 +192,27 @@ sub data {
 	    # apply only the newly matched to off_not_fwd
 	    $self->{off_not_fwd}[$dir] -= ( $mlen - ($rules->[0]{matched}||0) );
 
+	    # the rule is definitly doneif we reached rxlen
+	    my $rule_done;
 	    if ( $rxlen < $blen ) {
-		# the rule is definitly done
-		$DEBUG && debug("rule definitly done");
+		$DEBUG && debug("rule done because rxlen reached");
+		$rule_done = 1;
+	    }
+
+	    # if we have another rule in this direction immediatly after this
+	    # (e.g. ignore_order true or next.pos = pos+1), check if this rule
+	    # can match. In this case consider current rule also done.
+	    if ( ! $rule_done and @$rules>1
+		and $self->{ignore_order} || $rules->[1]{pos} == $pos+1 ) {
+		my $next_rule = $rules->[1];
+		if ( substr($buf,$mlen,$next_rule->{rxlen}) 
+		    =~m{\A$next_rule->{rx}} ) {
+		    $DEBUG && debug("rule done because next rule matched");
+		    $rule_done = 1;
+		}
+	    }
+
+	    if ( $rule_done ) {
 
 		# remove match from internal buffer
 		substr($buf,0,$mlen,'');
@@ -221,6 +228,7 @@ sub data {
 	    # Thus wait for new data, but mark the rules as matched, so it can
 	    # be removed if now data come from the other side and ! ignore_order
 	    $rules->[0]{matched} = $mlen;
+
 	    $DEBUG && debug("waiting for more data to extend existing match");
 	    last;
 
@@ -374,10 +382,6 @@ the regular expression itself
 
 =back
 
-Consecutive rules for the same direction are not allowed and should be merged.
-Also, if C<ignore_order> is true there must be at most one rule for each
-direction.
-
 =item ignore_order BOOLEAN
 
 If true, it will take the first rule for direction, when data for connection
@@ -426,6 +430,7 @@ Buffering more data than C<max_unbound> for this direction will cause a DENY.
 A rule was found.
 It will add the new data to the local buffer for the direction and then
 try to match the first C<rxlen> bytes of the buffer against the rule.
+The regex of the rule is implicitly anchored at the beginning of the buffer.
 
 =item *
 
@@ -469,6 +474,20 @@ have a size of less than, equal to or greater than C<rxlen>), care should be
 taken, when constructing the regular expression and determining C<rxlen>.
 It should not match data longer than C<rxlen>, e.g. instead of specifying
 C<\d+> one should specify a fixed size with C<\d{1,10}>.
+
+Care should also be taken, if you have consecutive rules for the same direction
+(e.g. either the next rule is for the same direction or C<ignore_order> is
+true).
+Here you need to make sure, that the first rule will not match data needed by
+the next rule, e.g. C<\w{1,2}> followed by C<\d> will not work, while
+C<[a-z]{1,2}> followed by C<\d> will be fine.
+
+Please note also, that the regular expression in the rule will be implicitly
+anchored at the beginning of the buffered data, e.g. C<\d> will only match if
+the first character is a digit, not if any character but the first in the buffer
+is a digit.
+If you want the latter behavior you have to explicitly allow other characters
+and need to limit their amount, e.g. "(?s).{0,10}\d".
 
 =head1 AUTHOR
 

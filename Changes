@@ -1,3 +1,7 @@
+0.36 2012/9/11
+- Net::IMP::ProtocolPinning:
+  - reverted 0.34 and make consecutive rules for the direction work
+  - enhanced documentation, especially for ceveats with regex
 0.35 2012/9/11
 - Net::IMP::ProtocolPinning - make back references like (\w)\1 work, by not
   putting the regex in another group and thus changing the meaning of \1
