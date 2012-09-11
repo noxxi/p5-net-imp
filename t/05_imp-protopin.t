@@ -102,6 +102,19 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     },
+    {
+	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
+	in => [[0,'toortoor']],
+	rv => [
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
+    {
+	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
+	in => [[0,'toorToor']],
+	rv => [[IMP_DENY, 0, 'rule did not match' ]],
+    }
 
 );
 

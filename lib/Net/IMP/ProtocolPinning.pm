@@ -186,9 +186,9 @@ sub data {
 	# a maximum of rxlen bytes.
 
 	my $blen = length($buf);
-	if ( substr($buf,0,$rxlen) =~ m{\A($rx)} ) {
+	if ( substr($buf,0,$rxlen) =~ m{\A$rx}p ) {
 	    # rule matched
-	    my $mlen = length($1);
+	    my $mlen = length(${^MATCH});
 
 	    $DEBUG &&
 		debug("'%s' matched with len=%d, bufsz %d->%d: ok done=%d",
