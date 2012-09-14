@@ -66,13 +66,14 @@ sub new_analyzer {
     for(my $i=0;$i<@$rules;$i++) {
 	# rxlen,rx are from the configuration
 	# pos is position of rule within the configuration
-	# matched is set, if rule matched already but might match more
+	# matchlen is set to length of match, if rule matched already but
+	# might match more
 	my $r = $rules->[$i];
 	push @{ $rules01[$r->{dir}] }, {
-	    rx      => $r->{rx},
-	    rxlen   => $r->{rxlen},
-	    pos     => $i,
-	    matched => 0,
+	    rx       => $r->{rx},
+	    rxlen    => $r->{rxlen},
+	    pos      => $i,
+	    matchlen => 0,
 	};
 	# set buf to '' for dir where we have rules, else leave undef
 	$buf[$r->{dir}] = '';
@@ -126,7 +127,9 @@ sub data {
 	    # we have unmatched rules in the other dir, thus consider
 	    # data from this side a protocol violation
 	    $self->{buf} = undef;
-	    $self->run_callback( [ IMP_DENY,$dir,'data from wrong side' ]);
+	    $self->run_callback([
+		IMP_DENY,$dir,
+		"rule#$o_rules->[0]{pos} data from wrong dir $dir" ]);
 	    return;
 	}
 
@@ -136,8 +139,8 @@ sub data {
 	if ( defined( my $max = $self->{max_unbound}[$dir])) {
 	    if ( $open>$max ) {
 		$self->{buf} = undef;
-		$self->run_callback(
-		    [IMP_DENY,$dir,"too much data outside rules"]);
+		$self->run_callback([IMP_DENY,$dir,
+		    "too much data outside rules for dir $dir" ]);
 	    }
 	}
 	return;
@@ -154,22 +157,22 @@ sub data {
     my $pass;
 
 
-    RULE: while ( @$rules and $buf ne '' ) {
-	my ($rxlen,$rx,$pos,$matched) =
-	    @{$rules->[0]}{qw(rxlen rx pos matched)};
+    while ( @$rules and $buf ne '' ) {
+	my ($rxlen,$rx,$pos,$matchlen) =
+	    @{$rules->[0]}{qw(rxlen rx pos matchlen)};
 
 	if ( ! $self->{ignore_order} ) {
 	    while ( @$o_rules and $o_rules->[0]{pos} < $pos ) {
 		# there is an earlier rule for the other side
 		# remove it, if it did match already
-		if ( my $mlen = $o_rules->[0]{matched} ) {
+		if ( my $o_mlen = $o_rules->[0]{matchlen} ) {
 		    # remove rule
 		    $DEBUG && debug("remove matched rule on dir change");
-		    my $r = shift(@$o_rules);
+		    shift(@$o_rules);
 
 		    # remove match from internal buffer
-		    substr($self->{buf}[$o_dir],0,$mlen,'');
-		    $self->{off_buf0}[$o_dir] += $mlen;
+		    substr($self->{buf}[$o_dir],0,$o_mlen,'');
+		    $self->{off_buf0}[$o_dir] += $o_mlen;
 
 		    # on last rule unset buf for dir
 		    $self->{buf}[$dir] = undef if ! @$o_rules;
@@ -179,7 +182,8 @@ sub data {
 
 		# the other rule should have matched earlier
 		$self->{buf} = undef;
-		$self->run_callback([ IMP_DENY,$dir,'data from wrong side' ]);
+		$self->run_callback([IMP_DENY,$dir,
+		    "rule#$o_rules->[0]{pos} data from wrong dir $dir" ]);
 		return;
 	    }
 	}
@@ -197,20 +201,20 @@ sub data {
 
 	    $DEBUG &&
 		debug("'%s' matched with len=%d, bufsz %d->%d: ok done=%d",
-		$rx,$mlen,$blen,$blen-$mlen,$rxlen<$blen);
+		$rx,$mlen,$blen,$blen-$mlen,$blen>=$rxlen);
 
 	    # set pass after match
 	    # we can at least pass all matched data, the match might only
 	    # be longer on new data
 	    $pass = $self->{off_buf0}[$dir] + $mlen;
 
-	    # {matched} might contain the length of already matched data
+	    # {matchlen} might contain the length of already matched data
 	    # apply only the newly matched to off_not_fwd
-	    $self->{off_not_fwd}[$dir] -= ( $mlen - ($rules->[0]{matched}||0) );
+	    $self->{off_not_fwd}[$dir] -= ( $mlen - ($rules->[0]{matchlen}||0) );
 
-	    # the rule is definitly doneif we reached rxlen
+	    # the rule is definitly done if we reached rxlen
 	    my $rule_done;
-	    if ( $rxlen < $blen ) {
+	    if ( $blen >= $rxlen ) {
 		$DEBUG && debug("rule done because rxlen reached");
 		$rule_done = 1;
 	    }
@@ -218,8 +222,10 @@ sub data {
 	    # if we have another rule in this direction immediatly after this
 	    # (e.g. ignore_order true or next.pos = pos+1), check if this rule
 	    # can match. In this case consider current rule also done.
-	    if ( ! $rule_done and @$rules>1
-		and $self->{ignore_order} || $rules->[1]{pos} == $pos+1 ) {
+	    if ( ! $rule_done
+		and @$rules>1
+		and ( $self->{ignore_order} or $rules->[1]{pos} == $pos+1 )
+		){
 		my $next_rule = $rules->[1];
 		if ( substr($buf,$mlen,$next_rule->{rxlen})
 		    =~m{\A$next_rule->{rx}} ) {
@@ -243,7 +249,7 @@ sub data {
 	    # we matched, but the match might be longer on new data.
 	    # Thus wait for new data, but mark the rules as matched, so it can
 	    # be removed if now data come from the other side and ! ignore_order
-	    $rules->[0]{matched} = $mlen;
+	    $rules->[0]{matchlen} = $mlen;
 
 	    $DEBUG && debug("waiting for more data to extend existing match");
 	    last;
@@ -253,7 +259,8 @@ sub data {
 	    $DEBUG && debug("'%s' did not match buflen(%d)>=rxlen(%d): fail",
 		$rx,$blen,$rxlen);
 	    $self->{buf} = undef;
-	    $self->run_callback([ IMP_DENY,$dir,'rule did not match' ]);
+	    $self->run_callback([IMP_DENY,$dir,
+		"rule#$rules->[0]{pos} did not match" ]);
 	    return;
 
 	} else {
@@ -264,17 +271,21 @@ sub data {
 	}
     }
 
-    if ( $data eq '' and @$rules and
-	( @$rules>1 or not $rules->[0]{matched} )) {
+    if ( $data eq ''
+	and @$rules
+	and ( @$rules>1 or not $rules->[0]{matchlen} )) {
 	# eof but we have still open rules
 	# consider early close as protocol violation
 	$self->{buf} = undef;
-	$self->run_callback([ IMP_DENY,$dir,'eof but unmatched rules' ]);
+	$self->run_callback([IMP_DENY,$dir,
+	    "eof on $dir but unmatched rule#$rules->[0]{pos}" ]);
 	return;
     }
 
-    if ( ! @$rules || @$rules == 1 && $rules->[0]{matched}
-	and ! @$o_rules || @$o_rules == 1 && $o_rules->[0]{matched} ) {
+    if (
+	( ! @$rules   or ( @$rules   == 1 and $rules->[0]{matchlen}  )) and
+	( ! @$o_rules or ( @$o_rules == 1 and $o_rules->[0]{matchlen}))
+	){
 	# all rules passed - let everything through
 	$self->{buf} = undef;
 	$self->run_callback(
@@ -473,8 +484,8 @@ If the rule matched and cannot match more (rxlen reached), it will
 
 =back
 
-If the rule might still match more data  it will still issue a PASS for the
-matched data, but wait with the other things until the rule is definitly done.
+If the rule might still match more data, it will issue a PASS for the matched
+data, but wait with the other things until the rule is definitly done.
 
 =item *
 
@@ -500,7 +511,7 @@ taken, when constructing the regular expression and determining C<rxlen>.
 It should not match data longer than C<rxlen>, e.g. instead of specifying
 C<\d+> one should specify a fixed size with C<\d{1,10}>.
 
-Care should also be taken, if you have consecutive rules for the same direction
+Care should also be taken if you have consecutive rules for the same direction
 (e.g. either the next rule is for the same direction or C<ignore_order> is
 true).
 Here you need to make sure, that the first rule will not match data needed by
@@ -509,9 +520,9 @@ C<[a-z]{1,2}> followed by C<\d> will be fine.
 
 Please note also, that the regular expression in the rule will be implicitly
 anchored at the beginning of the buffered data, e.g. C<\d> will only match if
-the first character is a digit, not if any character but the first in the buffer
-is a digit.
-If you want the latter behavior you have to explicitly allow other characters
+the first character is a digit, not if any character but the first in the
+buffer is a digit.
+If you want the latter behavior, you have to explicitly allow other characters
 and need to limit their amount, e.g. "(?s).{0,10}\d".
 
 =head1 AUTHOR

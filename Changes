@@ -1,3 +1,5 @@
+0.40 2012/9/14
+- Net::IMP::ProtocolPinning: cleanup code, make deny messages more detailed
 0.39 2012/9/11
 - Net::IMP::ProtocolPinning: consider eof a protocol violation, if there are
   still open rules in this direction

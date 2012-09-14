@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.39;
+our $VERSION = 0.40;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -461,6 +461,9 @@ connection end.
 =head1 AUTHOR
 
 Steffen Ullrich <sullr@cpan.org>
+
+Thanks to everybody who helped with time, ideas, reviews or bug reports,
+notably Alexander Bluhm and others at genua.de.
 
 =head1 COPYRIGHT
 

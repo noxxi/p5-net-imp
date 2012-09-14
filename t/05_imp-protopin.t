@@ -37,7 +37,7 @@ my @tests = (
 	    [0,'affe'],
 	    [0,'ok' ]
 	],
-	rv => [[IMP_DENY, 1, 'data from wrong side' ]],
+	rv => [[IMP_DENY, 1, 'rule#0 data from wrong dir 1' ]],
     },{
 	ignore_order => 1,
 	rv => [
@@ -62,7 +62,7 @@ my @tests = (
 	max_unbound => [4,], # "huhu" fits in 4 bytes
     }, {
 	max_unbound => [0,],
-	rv => [[IMP_DENY, 0, 'too much data outside rules' ]],
+	rv => [[IMP_DENY, 0, 'too much data outside rules for dir 0' ]],
     }, {
 	max_unbound => [100,100],
 	rules => [
@@ -110,18 +110,18 @@ my @tests = (
     {
 	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
 	in => [[0,'toorToor']],
-	rv => [[IMP_DENY, 0, 'rule did not match' ]],
+	rv => [[IMP_DENY, 0, 'rule#0 did not match' ]],
     },
     {
 	ignore_order => 0,
 	rules => [ { dir => 1, rxlen => 1, rx => qr/./ } ],
 	in => [[0,'foo']],
-	rv => [[IMP_DENY, 0, 'data from wrong side' ]],
+	rv => [[IMP_DENY, 0, 'rule#0 data from wrong dir 0' ]],
     },
     {
 	rules => [ { dir => 1, rxlen => 2, rx => qr/../ } ],
 	in => [[1,'X'],[1,'']],
-	rv => [[IMP_DENY, 1, 'eof but unmatched rules' ]],
+	rv => [[IMP_DENY, 1, 'eof on 1 but unmatched rule#0' ]],
     }
 
 );
