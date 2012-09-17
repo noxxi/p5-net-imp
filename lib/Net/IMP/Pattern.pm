@@ -241,7 +241,7 @@ __END__
 
 =head1 NAME
 
-Net::IMP::Pattern - IMP plugin for matching pattern and blocking, replacing...
+Net::IMP::Pattern - IMP plugin for reacting to matched pattern
 
 =head1 SYNOPSIS
 

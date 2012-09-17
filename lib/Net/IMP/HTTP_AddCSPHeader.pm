@@ -269,12 +269,14 @@ __END__
 
 =head1 NAME
 
-AHAPI::HTTP_AddCSPHeader - adds Content Security Policy header and more
+Net::IMP::HTTP_AddCSPHeader - adds Content Security Policy header and more
 
 =head1 DESCRIPTION
 
-This module is experimenting with automatically adding Content Security Policy
-to HTTP responses and more. It uses the L<ContentSecurityPolicy> module to
+This module uses the (not yet publically released) L<WWW::CSP>module to
+extract information from HTTP requests and responses and to automatically create
+Content Security Policies.
+It will:
 
 =over 4
 
@@ -292,7 +294,7 @@ track (and maybe check) referers from HTTP requests
 
 =back
 
-it interacts with the CSP module by
+it interacts with the L<WWW::CSP> module by
 
 =over 4
 

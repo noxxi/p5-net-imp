@@ -3,7 +3,6 @@ lib/Net/IMP/Base.pm
 lib/Net/IMP/Cascade.pm
 lib/Net/IMP/Debug.pm
 lib/Net/IMP/Filter.pm
-lib/Net/IMP/HTTP_AddCSPHeader.pm
 lib/Net/IMP/HTTP_AddXFooHeader.pm
 lib/Net/IMP/Pattern.pm
 lib/Net/IMP/ProtocolPinning.pm

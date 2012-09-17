@@ -1,3 +1,8 @@
+0.41 2012/9/17
+- remove Net::IMP::ADD_CSPHeader from cpan distribution, because it depends
+  on a not yet released module WWW::CSP. Net::IMP::ADD_CSPHeader is still
+  available from github
+- enhanced documentation
 0.40 2012/9/14
 - Net::IMP::ProtocolPinning: cleanup code, make deny messages more detailed
 0.39 2012/9/11

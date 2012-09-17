@@ -3,7 +3,7 @@ use warnings;
 
 package Net::IMP;
 
-our $VERSION = 0.40;
+our $VERSION = 0.41;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';

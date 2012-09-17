@@ -170,7 +170,7 @@ __END__
 
 =head1 NAME
 
-AHAPI::HTTP_AddXFooHeader - adds X-Foo header to HTTP respone
+Net::IMP::HTTP_AddXFooHeader - adds X-Foo header to HTTP response
 
 =head1 DESCRIPTION
 
