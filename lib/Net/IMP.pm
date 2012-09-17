@@ -61,10 +61,7 @@ use constant IMP_REPLACE      => dualvar(0x1011,"replace");
 use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 
-use constant IMP_MAXOFFSET    => (
-    (1<<32) == 1 ? 2**50 : # max 53bit on 32bit systems with FP
-    (1<<63)-1              # 63bit on 64bit systems with signed int
-);
+use constant IMP_MAXOFFSET    => -1;
 
 # log levels for IMP_LOG
 # these are modeled analog to syslog levels

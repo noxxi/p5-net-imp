@@ -255,7 +255,8 @@ sub new_analyzer {
 	    # (on IMP_PASS) or send it to the analyzer after forwarding it
 	    # (IMP_PREPASS)
 	    while ( my $buf = shift(@$bufs) ) {
-		my $keep = $buf->{endpos} - $p->{lppos};
+		my $keep = ( $p->{lppos} == IMP_MAXOFFSET) 
+		    ? -1 : $buf->{endpos} - $p->{lppos};
 		if ( $keep <=0 ) {
 		    $DEBUG && debug("fwd complete buf lppos=%d endpos=%d",
 			$p->{lppos}, $buf->{endpos});
@@ -435,7 +436,8 @@ sub new_analyzer {
 		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{type},$dir,".
 		    "$eob=$fw->{endpos}-adjust");
 
-		if ( $eob < $global_lastpass[$dir]{pos} ) {
+		if ( $eob < $global_lastpass[$dir]{pos} 
+		    or $global_lastpass[$dir]{pos} == IMP_MAXOFFSET ) {
 		    # we already issued an IMP_(PRE)PASS for this offset
 		    # no need to propagate
 		} elsif ( $fw->{type} ~~ [ IMP_PASS, IMP_PREPASS ]) {
@@ -572,17 +574,20 @@ sub new_analyzer {
 		my $startpos = $p->{bufs}[0]{endpos}
 		    - length($p->{bufs}[0]{data});
 
-		if ( $offset <= $startpos ) {
-		    # we got an IMP_(PRE)PASS for data we already processed ->
-		    # ignore
-		    $DEBUG && debug("impcb[$dir][$pi] $rtype ignoring, ".
-			"offset($offset)<pos($startpos)");
-
-		} elsif ( $p->{lppos} and $offset < $p->{lppos} ) {
-		    # we got an IMP_(PRE)PASS with a higher offset before ->
-		    # ignore the new offset
+		if ( $p->{lppos} and (
+		    $p->{lppos} == IMP_MAXOFFSET or
+		    ($offset != IMP_MAXOFFSET and $offset < $p->{lppos})
+		    )) {
+		    # ignore because we got an IMP_(PRE)PASS with a higher
+		    # offset before 
 		    $DEBUG && debug("impcb[$dir] $rtype ignoring, ".
 			"offset($offset)<lppos($p->{lppos})");
+
+		} elsif ( $offset <= $startpos and $offset != IMP_MAXOFFSET ) {
+		    # ignore because we got an IMP_(PRE)PASS for data we
+		    # already processed 
+		    $DEBUG && debug("impcb[$dir][$pi] $rtype ignoring, ".
+			"offset($offset)<pos($startpos)");
 
 		} else {
 		    # set lppos and lptype from result and call process, to
@@ -605,19 +610,25 @@ sub new_analyzer {
 		my $startpos = $p->{bufs}[0]{endpos}
 		    - length($p->{bufs}[0]{data});
 
-		if ( $offset <= $startpos ) {
+		if ( $offset == IMP_MAXOFFSET
+		    or $offset > $p->{bufs}[-1]{endpos} ) {
+		    # we cannot replace future data
+		    die "cannot replace future data, endpos=".
+			$p->{bufs}[-1]{endpos}." offset=$offset";
+
+		} elsif ( $p->{lppos} and 
+		    ( $p->{lppos} == IMP_MAXOFFSET or $offset < $p->{lppos} )) {
+		    # We got a replacement for data which earlier received an
+		    # IMP_(PRE)PASS. This should never happen (but can, if the
+		    # analyzer is bogus).
+		    die "cannot replace \@$offset because of ".
+			"$p->{lptype} \@$p->{lppos}";
+
+		} elsif ( $offset <= $startpos ) {
 		    # We got a replacement for data, we already handled.
 		    # This should never happen (but can, if the analyzer is
 		    # bogus).
 		    die "cannot replace already processed data";
-
-		} elsif ( $p->{lppos} and $offset < $p->{lppos} ) {
-		    # We got a replacement for data which earlier received an
-		    # IMP_(PRE)PASS.
-		    # This should never happen (but can, if the analyzer is
-		    # bogus).
-		    die "cannot replace \@$offset because of ".
-			"$p->{lptype} \@$p->{lppos}";
 
 		} else {
 		    # The replacement consists of two pieces:
@@ -726,6 +737,8 @@ sub new_analyzer {
 	# if something changed, check if we could update global_lastpass
 	for my $dir (keys %dir_changed) {
 
+	    next if $global_lastpass[$dir]{pos} == IMP_MAXOFFSET;
+
 	    # We traverse all parts for $dir and check the amount of data we
 	    # could forward in each part (e.g. check lppos vs. endpos of last
 	    # buf in part). The minimum of all these values (lpdiff) is the
@@ -737,32 +750,41 @@ sub new_analyzer {
 	    my $lptype = 0;
 	    my $px = $parts[$dir];
 	    for my $p (@$px) {
-		my $over = $p->{lppos} - $p->{bufs}[-1]{endpos};
-		if ( $over <= 0 ) {
-		    # nothing can be forwarded
-		    $lpdiff = 0;
-		    last
-		} elsif ( ! $lpdiff || $lpdiff>$over ) {
-		    # lpdiff can be forwarded with type lptype
-		    $lpdiff =  ($p->{lppos} == IMP_MAXOFFSET)
-			? IMP_MAXOFFSET : $over;
+		if ( $p->{lppos} == IMP_MAXOFFSET ) {
+		    $lpdiff = IMP_MAXOFFSET;
 		    $lptype = $p->{lptype} if $p->{lptype} > $lptype;
+
+		} else {
+		    my $over = $p->{lppos} - $p->{bufs}[-1]{endpos};
+		    if ( $over <= 0 ) {
+			# nothing can be forwarded
+			$lpdiff = 0;
+			last
+		    } elsif ( ! $lpdiff || $lpdiff>$over ) {
+			# lpdiff can be forwarded with type lptype
+			$lpdiff = $over;
+			$lptype = $p->{lptype} if $p->{lptype} > $lptype;
+		    }
 		}
 	    }
-	    if ( $lptype and $lpdiff > 0 ) {
-		my $pos = ($lpdiff == IMP_MAXOFFSET)
-		    ? IMP_MAXOFFSET
-		    : $px->[-1]{bufs}[-1]{endpos} + $lpdiff;
-		if ( $pos > $global_lastpass[$dir]{pos} ) {
-		    # we got a higher value for global_lastpass
-		    # update and propagate it up
-		    $global_lastpass[$dir] = {
-			pos  => $pos,
-			type => $lptype
-		    };
-		    $wself->run_callback([$lptype,$dir,$pos]);
-		}
+	    $lptype or next;
+	    my $pos;
+	    if ( $lpdiff == IMP_MAXOFFSET ) {
+		$pos = IMP_MAXOFFSET;
+	    } elsif ( $lpdiff>0 ) {
+		$pos = $px->[-1]{bufs}[-1]{endpos} + $lpdiff;
+		next if $pos <= $global_lastpass[$dir]{pos};
+	    } else {
+		next;
 	    }
+
+	    # we got a higher value for global_lastpass
+	    # update and propagate it up
+	    $global_lastpass[$dir] = {
+		pos  => $pos,
+		type => $lptype
+	    };
+	    $wself->run_callback([$lptype,$dir,$pos]);
 	}
     };
 
