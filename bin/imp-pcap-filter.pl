@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+ | #!/usr/bin/perl
 
 use strict;
 use warnings;
@@ -118,7 +118,7 @@ sub new {
 sub new_connection {
     my ($self,$meta) = @_;
     my $imp = $self->{imp} 
-	&& $self->{imp}->new_context(meta => $meta);
+	&& $self->{imp}->new_analyzer(meta => $meta);
     my $pcap = $self->{pcap}->tcp_conn(
 	$meta->{saddr}, $meta->{sport},
 	$meta->{daddr}, $meta->{dport},

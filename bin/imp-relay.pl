@@ -104,7 +104,7 @@ for my $l (@listen) {
 		    }
 		}
 
-		my $imp = $imp_factory && $imp_factory->new_context( meta => {
+		my $imp = $imp_factory && $imp_factory->new_analyzer( meta => {
 		    app => 'imp_proxy',
 		    caddr => $chost, cport => $cport,
 		    raddr => $rhost, rport => $rport,
