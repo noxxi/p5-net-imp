@@ -1,3 +1,7 @@
+0.43 2012/9/17
+- more fixes to bin/*.pl
+- test for bin/imp-pcap-filter.pl
+- make IMP_MAXOFFSET -1 to avoid problems on 32bit systems
 0.42 2012/9/17
 - fix bin/*.pl - they referred to old Utils, IMP_ constants...
 0.41 2012/9/17

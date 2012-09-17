@@ -69,7 +69,7 @@ for my $l (@listen) {
 	my ($mod,$args) = $module =~m{^([a-z][\w:]*)(?:=(.*))?$}i
 	    or die "invalid module $module";
 	eval "require $mod" or die "cannot load $mod args=$args: $@";
-	my %args = split(',',$args//'');
+	my %args = $mod->str2cfg($args//'');
 	$imp_factory = $mod->new_factory(
 	    rtypes => [
 		IMP_PASS,

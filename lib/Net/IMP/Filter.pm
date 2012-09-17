@@ -61,8 +61,22 @@ sub in {
     $DEBUG && debug("in($dir) %d bytes",length($data));
 
     # (pre)pass w/o analyzing (first)
-    my $diff = $self->{topass}[$dir]-$self->{passed}[$dir];
-    if ( $diff>0 ) {
+    if ( $self->{topass}[$dir] == IMP_MAXOFFSET ) {
+	$DEBUG && debug("can (pre)pass w/o analyzing (first) ".
+	    "topass=MAX passed=$self->{passed}[$dir] l=".
+	    length($data));
+	# (pre)pass in future
+	$self->{buf}[$dir] eq '' or die "buf should be empty";
+	$self->{passed}[$dir] += length($data);
+	_out($self,$dir,$data);
+	if ( $self->{prepass}[$dir] ) {
+	    $self->{imp}->data($dir,$data)
+	} elsif ( $data ne '' ) {
+	    $self->{skipped}[$dir] = 1;
+	}
+	$data = '';
+	return; # everything passed
+    } elsif (( my $diff = $self->{topass}[$dir]-$self->{passed}[$dir] ) > 0 ) {
 	$DEBUG && debug("can (pre)pass w/o analyzing (first) diff=$diff ".
 	    "topass=$self->{topass}[$dir] passed=$self->{passed}[$dir] l=".
 	    length($data));
@@ -118,33 +132,40 @@ sub _imp_cb {
 		$rtype,$dir,$offset,$self->{passed}[$dir],
 		length($self->{buf}[$dir]));
 
-	    my $diff = $offset - $self->{passed}[$dir];
-	    if ( $diff<0 ) {
-		$DEBUG && debug("diff=$diff - $rtype for already passed data");
-		# already passed
-		die "cannot replace already passed data"
-		    if $rtype == IMP_REPLACE;
-		next;
+	    my $fwd = length($self->{buf}[$dir]);
+	    if ( $offset != IMP_MAXOFFSET ) {
+		my $diff = $offset - $self->{passed}[$dir];
+		if ( $diff<0 ) {
+		    $DEBUG && debug("diff=$diff - $rtype for already passed data");
+		    # already passed
+		    die "cannot replace already passed data"
+			if $rtype == IMP_REPLACE;
+		    next;
+		}
+
+		my $rl = $fwd;
+		$fwd = $rl>$diff ? $diff: $rl;
+		$DEBUG && debug("need to $rtype $fwd bytes");
+		$self->{passed}[$dir]  += $fwd;
+
+		if ( $rtype == IMP_REPLACE ) {
+		    die "cannot replace not yet received data" if $rl<$diff;
+		    $DEBUG && debug("buf='%s' [0,$fwd]->'%s'",
+			substr($self->{buf}[$dir],0,$fwd),$newdata);
+		    substr($self->{buf}[$dir],0,$fwd,$newdata);
+		    $fwd = length($newdata);
+		}
+
+	    } else {
+		die "cannot replace future data" if $rtype == IMP_REPLACE;
+		$self->{passed}[$dir]  += $fwd;
 	    }
 
-	    my $rl = length($self->{buf}[$dir]);
-	    my $l = $rl>$diff ? $diff: $rl;
-	    $DEBUG && debug("need to $rtype $l bytes");
-
-	    $self->{passed}[$dir]  += $l;
 	    $self->{topass}[$dir]  = $offset;
 	    $self->{prepass}[$dir] = ($rtype == IMP_PREPASS);
 
-	    if ( $rtype == IMP_REPLACE ) {
-		die "cannot replace not yet received data" if $rl<$diff;
-		$DEBUG && debug("buf='%s' [0,$l]->'%s'",
-		    substr($self->{buf}[$dir],0,$l),$newdata);
-		substr($self->{buf}[$dir],0,$l,$newdata);
-		$l = length($newdata);
-	    }
-
 	    # output accepted data
-	    _out($self,$dir,substr($self->{buf}[$dir],0,$l,'')) if $l;
+	    _out($self,$dir,substr($self->{buf}[$dir],0,$fwd,'')) if $fwd;
 
 	} else {
 	    die "cannot handle Net::IMP rtype $rtype";
