@@ -212,7 +212,7 @@ sub data {
 	    # apply only the newly matched to off_not_fwd
 	    $self->{off_not_fwd}[$dir] -= ( $mlen - ($rules->[0]{matchlen}||0) );
 
-	    # the rule is definitly done if we reached rxlen
+	    # the rule is definitely done if we reached rxlen
 	    my $rule_done;
 	    if ( $blen >= $rxlen ) {
 		$DEBUG && debug("rule done because rxlen reached");
@@ -485,7 +485,7 @@ If the rule matched and cannot match more (rxlen reached), it will
 =back
 
 If the rule might still match more data, it will issue a PASS for the matched
-data, but wait with the other things until the rule is definitly done.
+data, but wait with the other things until the rule is definitely done.
 
 =item *
 

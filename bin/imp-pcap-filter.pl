@@ -2,7 +2,6 @@
 
 use strict;
 use warnings;
-use Utils;
 use Getopt::Long qw(:config posix_default bundling);
 use Net::Inspect::Debug '%TRACE';
 use Net::Inspect::L2::Pcap;
@@ -12,6 +11,7 @@ use Net::PcapWriter;
 use Net::Pcap qw(:functions);
 use Net::IMP;
 use Net::IMP::Cascade;
+use Net::IMP::Debug;
 
 # rtypes we support in this program
 my @rtypes = (
@@ -20,7 +20,7 @@ my @rtypes = (
     IMP_DENY,
     IMP_REPLACE,
     IMP_LOG,
-    IMP_ACCTFLD,
+    IMP_ACCTFIELD,
 );
 
 

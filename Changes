@@ -1,3 +1,5 @@
+0.42 2012/9/17
+- fix bin/*.pl - they referred to old Utils, IMP_ constants...
 0.41 2012/9/17
 - remove Net::IMP::ADD_CSPHeader from cpan distribution, because it depends
   on a not yet released module WWW::CSP. Net::IMP::ADD_CSPHeader is still

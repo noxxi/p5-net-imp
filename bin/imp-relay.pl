@@ -2,11 +2,11 @@
 
 use strict;
 use warnings;
-use Utils;
 use Getopt::Long qw(:config posix_default bundling);
 use AnyEvent;
 use AnyEvent::Socket qw(tcp_server tcp_connect parse_hostport format_address);
 use Net::IMP;
+use Net::IMP::Debug qw(:DEFAULT $DEBUG_RX);
 
 # get a chance to cleanup
 $SIG{TERM} = $SIG{INT} = sub { exit(0) };
@@ -49,7 +49,7 @@ if (@debug_pkg) {
     $DEBUG = 1;
     # glob2rx
     s{(\*)|(\?)|([^*?]+)}{ $1 ? '.*': $2 ? '.': "\Q$3" }esg for (@debug_pkg);
-    $Utils::DEBUG_RX = join('|',@debug_pkg);
+    $DEBUG_RX = join('|',@debug_pkg);
 }
 
 push @listen, [ undef,@laddr ] if @laddr;
@@ -78,7 +78,7 @@ for my $l (@listen) {
 		IMP_REPLACE,
 		IMP_TOSENDER,
 		IMP_LOG,
-		IMP_ACCTFLD,
+		IMP_ACCTFIELD,
 	    ],
 	    %args
 	) or croak("cannot create Net::IMP factory for $mod");
@@ -232,8 +232,8 @@ exit;
 
 package Connection;
 use Hash::Util 'lock_keys';
-use Utils;
 use Net::IMP;
+use Net::IMP::Debug;
 use constant READSZ => 8192;
 use Socket 'MSG_PEEK';
 
@@ -521,7 +521,7 @@ sub new {
 		# FIXME use smthg better then just debug
 		$self->xdebug("imp[$dir] off=$offset/$len <$level> $msg");
 
-	    } elsif ( $rtype == IMP_ACCTFLD ) {
+	    } elsif ( $rtype == IMP_ACCTFIELD ) {
 		my ($key,$value) = @$rv;
 		# FIXME use smthg better then just debug
 		$self->xdebug("accounting $key=$value");
