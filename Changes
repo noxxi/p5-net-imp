@@ -1,3 +1,6 @@
+0.44 2012/9/19
+- Net::IMP::ProtocolPinning: added test with look-ahead pattern and explain
+  rxlen for this case.
 0.43 2012/9/17
 - more fixes to bin/*.pl
 - test for bin/imp-pcap-filter.pl

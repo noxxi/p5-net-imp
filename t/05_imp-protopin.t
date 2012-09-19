@@ -122,6 +122,22 @@ my @tests = (
 	rules => [ { dir => 1, rxlen => 2, rx => qr/../ } ],
 	in => [[1,'X'],[1,'']],
 	rv => [[IMP_DENY, 1, 'eof on 1 but unmatched rule#0' ]],
+    },
+    {
+	ignore_order => 1,
+	rules => [ 
+	    { dir => 0, rxlen => 6, rx => qr/foo(?=bar)/ },
+	    { dir => 1, rxlen => 6, rx => qr/bar(?=foo)/ } 
+	],
+	in => [
+	    [ 0,'fo' ], [ 0,'o' ], [ 0,'ba' ], [ 0,'rff' ],
+	    [ 1,'b' ], [ 1,'arf' ], [ 1,'oobb' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,3 ],             # foobar -> fwd 'foo'
+	    [ IMP_PASS,0,IMP_MAXOFFSET ], # barfoo -> all done
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	]
     }
 
 );
