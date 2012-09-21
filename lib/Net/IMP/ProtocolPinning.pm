@@ -174,8 +174,8 @@ sub data {
 		    substr($self->{buf}[$o_dir],0,$o_mlen,'');
 		    $self->{off_buf0}[$o_dir] += $o_mlen;
 
-		    # on last rule unset buf for dir
-		    $self->{buf}[$dir] = undef if ! @$o_rules;
+		    # on last rule unset buf for o_dir
+		    $self->{buf}[$o_dir] = undef if ! @$o_rules;
 
 		    next;
 		}

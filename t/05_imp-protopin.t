@@ -138,6 +138,29 @@ my @tests = (
 	    [ IMP_PASS,0,IMP_MAXOFFSET ], # barfoo -> all done
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	]
+    },
+    {
+	ignore_order => 0,
+	rules => [ 
+	    { dir => 0, rxlen => 20, rx => qr/a.*b/ },
+	    { dir => 1, rxlen => 20, rx => qr/C.*D/ },
+	    { dir => 0, rxlen => 20, rx => qr/e.*f/ },
+	    { dir => 1, rxlen => 20, rx => qr/G.*H/ },
+	],
+	in => [
+	    [ 0,'a.b' ],
+	    [ 1,'C.D' ],
+	    [ 0,'e.f' ],
+	    [ 1,'G.' ],
+	    [ 1,'H' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,3 ],
+	    [ IMP_PASS,1,3 ],
+	    [ IMP_PASS,0,6 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	]
     }
 
 );
