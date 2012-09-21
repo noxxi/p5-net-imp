@@ -411,7 +411,7 @@ the direction, e.g. 0 for data from client and 1 for data from server
 =item rxlen
 
 the length of data the regular expression might need for the match.
-E.g.  if the regex is C<qr/foo(?=bar)/> 6 bytes are needed for a successful
+E.g. if the regex is C<qr/foo(?=bar)/> 6 bytes are needed for a successful
 match, even if the regex matches only 3 bytes.
 
 =item rx
