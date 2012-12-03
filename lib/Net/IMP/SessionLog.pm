@@ -27,8 +27,8 @@ sub validate_cfg {
     my @err;
     my $fmt = delete $args{format} || 'bin';
     if ( $fmt eq 'pcap' ) {
-	push @err, "cannot load Net::PcapWriter needed for format pcap"
-	    if ! eval "require 'Net::PcapWriter'";
+	push @err, "cannot load Net::PcapWriter needed for format pcap: $@"
+	    if ! eval "require Net::PcapWriter";
     } elsif ( $fmt ne 'bin' ) {
 	push @err, "format should be bin or pcap"
     }
@@ -48,8 +48,8 @@ sub new_analyzer {
 
     my $fmt  = $args{format} || 'bin';
     if ( $fmt eq 'pcap' ) {
-	eval "require 'Net::PcapWriter'" or croak
-	    "cannot load Net::PcapWriter needed for format pcap";
+	eval "require Net::PcapWriter" or croak
+	    "cannot load Net::PcapWriter needed for format pcap: $@";
     }
 
     my $meta = $args{meta};

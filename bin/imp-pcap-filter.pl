@@ -8,7 +8,7 @@ use Net::Inspect::L2::Pcap;
 use Net::Inspect::L3::IP;
 use Net::Inspect::L4::TCP;
 use Net::PcapWriter;
-use Net::Pcap qw(:functions);
+use Net::Pcap qw(pcap_open_offline pcap_loop);
 use Net::IMP;
 use Net::IMP::Cascade;
 use Net::IMP::Debug;

@@ -7,15 +7,24 @@ use Data::Dumper;
 for (qw(
     Net::Pcap 
     Net::PcapWriter 
-    Net::Inspect 
+    Net::Inspect!0.24
     Net::Inspect::L4::TCP
     Net::Inspect::L3::IP
     Net::Inspect::L2::Pcap
     Net::IMP::ProtocolPinning
 )) {
-    eval "require $_" and next;
-    plan skip_all => "cannot load $_";
-    exit;
+    my ($mod,$want_version) = split('!');
+    if ( ! eval "require $mod" ) {
+	plan skip_all => "cannot load $mod";
+	exit;
+    } elsif ( $want_version ) {
+	no strict 'refs';
+	my $v = ${"${mod}::VERSION"};
+	if ( ! $v or $v < $want_version ) {
+	    plan skip_all => "wrong version $mod - have $v want $want_version";
+	    exit;
+	}
+    }
 }
 
 # find imp-pcap-file program
