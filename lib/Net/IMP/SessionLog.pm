@@ -11,8 +11,17 @@ use Carp 'croak';
 use Time::HiRes 'gettimeofday';
 use File::Temp 'tempfile';
 
-# we only use the PREPASS type
-sub USED_RTYPES { return (IMP_PREPASS,IMP_ACCTFIELD) };
+sub USED_RTYPES { return (
+    IMP_PREPASS,   # nothing gets ever changed or denied
+    IMP_ACCTFIELD, # to account the session log file
+)}
+
+sub SUPPORTED_DTYPES { return (
+    # both stream and packet data are supported
+    IMP_DATA_STREAM,
+    IMP_DATA_PACKET,
+)}
+
 sub new_factory {
     my ($class,%args) = @_;
     # XXX new_factory might be called in a different root than new_analyzer

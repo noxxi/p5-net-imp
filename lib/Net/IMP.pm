@@ -1,9 +1,7 @@
 use strict;
 use warnings;
 
-package Net::IMP;
-
-our $VERSION = 0.46;
+package Net::IMP 0.47;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -26,6 +24,8 @@ our @EXPORT = qw(
     IMP_PORT_CLOSE
     IMP_ACCTFIELD
     IMP_MAXOFFSET
+    IMP_DATA_STREAM
+    IMP_DATA_PACKET
 );
 
 my @log_levels = qw(
@@ -40,6 +40,16 @@ my @log_levels = qw(
 );
 our @EXPORT_OK = @log_levels;
 our %EXPORT_TAGS = ( log => \@log_levels );
+
+# data types
+# These two are the basic types, more application specific types might
+# be defined somewhere else and be mapped to a number within SUPPORTED_DTYPES.
+# The only important thing is, that streaming data should be 0, while
+# packetized data (like HTTP header or UDP datagrams) should be > 0
+# If no explicit type is given in sub data, it will assume IMP_DATA_STREAM.
+use constant IMP_DATA_STREAM  => dualvar(0x0,'stream');
+use constant IMP_DATA_PACKET  => dualvar(0x1,'packet');
+
 
 # the numerical order of the constants describes priority when
 # cascading modules, e.g. replacement has a higher value then
@@ -61,6 +71,7 @@ use constant IMP_REPLACE      => dualvar(0x1011,"replace");
 use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 
+# marker for (pre)pass to Infinite for IMP_PASS, IMP_PREPASS
 use constant IMP_MAXOFFSET    => -1;
 
 # log levels for IMP_LOG
@@ -78,6 +89,11 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 # no response types in default implementation
 # override this with @list of response types implemented by the class
 sub USED_RTYPES {}
+
+# by default only streaming data are supported
+# override this with @list of data types implemented by the class
+sub SUPPORTED_DTYPES { (IMP_DATA_STREAM) }
+
 sub new_factory {
     my ($class,%args) = @_;
     # if caller supports only limited set on response types make sure
@@ -87,6 +103,14 @@ sub new_factory {
 	if ( my @miss = grep { !$rt{$_} } $class->USED_RTYPES(%args) ) {
 	    croak("response types @miss need to be supported for use of $class")
 	}
+    }
+    if ( my $dt = delete $args{dtypes} ) {
+	my %supp = map { $_ => $_ } $class->SUPPORTED_DTYPES(%args);
+	my @both = grep { exists $supp{$_} } @$dt;
+	if ( ! @both ) {
+	    croak("no common set of data types. want=@$dt have=".join(' ',keys %supp));
+	}
+	@$dt = @both; # put back result
     }
     return bless [ $class, \%args ], 'Net::IMP::Factory';
 }
@@ -99,6 +123,11 @@ sub new_factory {
 	my ($self,%args) = @_;
 	my ($class,$fargs) = @$self;
 	return $class->USED_RTYPES(%$fargs,%args);
+    }
+    sub SUPPORTED_DTYPES {
+	my ($self,%args) = @_;
+	my ($class,$fargs) = @$self;
+	return $class->SUPPORTED_DTYPES(%$fargs,%args);
     }
     sub new_analyzer {
 	my ($self,%args) = @_;
@@ -238,11 +267,17 @@ The following API is defined.
 =item $class->new_factory(%args) => $factory
 
 This creates a new factory object which is later used to create the context.
-In the default implementation, an argument C<< rtypes => [qw(pass prepass..)] >>
+In the default implementation, an argument 
+C<< rtypes => [ IMP_PASS, IMP_PREPASS... ] >>
 can be given where the caller can specify the response types it supports.
 This will be checked against the list returned by C<< $class->USED_RTYPES() >>
 and if the class uses response types not implemented by the caller it will
 croak.
+
+Also an argument C<< dtypes => [ IMP_DATA_STREAM, IMP_DATA_PACKET...] >> can be
+given to specify the list of data types supported by the caller. 
+All dtypes not supported by the implementation will be removed from the given
+list, maintaining the order of entries in the list.
 
 =item $factory->new_analyzer(%args) => $self|undef
 
@@ -275,18 +310,25 @@ If $code is undef, an existing callback will be removed.
 
 If no callback is given, the results need to be polled with C<poll_results>.
 
-=item $self->data($dir,$data,$offset)
+=item $self->data($dir,$data,$offset,[$type])
 
 Forwards new data to the analyzer.
 C<$dir> is the direction, e.g. 0 from client and 1 from server.
 C<$data> are the data.
-C<$data> of undef means end of data.
+C<$data> of '' means end of data.
 
 C<$offset> is the current position (octet) in the data stream.
-It must be set after data got omitted as a result of PASS or PASS_PATTERN, so
-that the analyzer can resynchronize the internal position value with the
-original position in the data stream.
-It must not be set in any other case.
+It must be set to a value greater than 0 after data got omitted as a result of
+PASS or PASS_PATTERN, so that the analyzer can resynchronize the internal
+position value with the original position in the data stream.
+In any other case it should be set to 0.
+
+C<$type> is the type of the data. If not given, IMP_DATA_STREAM will be assumed,
+which is the only type available for streaming data, e.g. where the size and
+number of chunks does not matter. 
+Any other types are considered packet-like, e.g. each chunk is a seperate entity
+for analysis (but the analysis result of one packet might still affect the
+analysis of later packets).
 
 Results will be delivered through the callback or via C<poll_results>.
 

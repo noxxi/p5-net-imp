@@ -51,7 +51,7 @@ sub new_analyzer {
     $self->{dataf} = sub {
 	my ($dir,$data,$offset) = @_;
 	my $n;
-	if ( defined $offset ) {
+	if ( $offset ) {
 	    $n = $offset - $offset[$dir];
 	    $n<=0 and return;
 	    $analyzer->in($dir,[ gap => $n ],0,0 );

@@ -23,6 +23,10 @@ my @rtypes = (
     IMP_ACCTFIELD,
 );
 
+my @dtypes = (
+    IMP_DATA_STREAM,
+);
+
 
 sub usage {
     print STDERR <<USAGE;
@@ -68,8 +72,10 @@ for my $module (@module) {
 	or die "invalid module $module";
     eval "require $mod" or die "cannot load $module";
     my %args = $mod->str2cfg($args//'');
-    push @factory, $mod->new_factory(%args, rtypes => \@rtypes) 
-	or croak("cannot create Net::IMP factory for $mod");
+    push @factory, $mod->new_factory(%args, 
+	rtypes => \@rtypes, 
+	dtypes => \@dtypes,
+    ) or croak("cannot create Net::IMP factory for $mod");
 }
 
 my $imp_factory;
@@ -78,6 +84,7 @@ if (@factory == 1) {
 } elsif (@factory) {
     $imp_factory = Net::IMP::Cascade->new_factory(
 	rtypes => \@rtypes, 
+	dtypes => \@dtypes,
 	parts => \@factory 
     ) or croak("cannot create factory from Net::IMP::Cascade");
 }

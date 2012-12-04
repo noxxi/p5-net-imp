@@ -44,6 +44,23 @@ use Data::Dumper;
     }
 }
 
+{
+    my @implemented_myself = (
+	IMP_DATA_STREAM
+    );
+
+    # restrict given dtypes to the ones supported by all
+    sub SUPPORTED_DTYPES {
+	my ($self,%args) = @_;
+	my %supp = map { $_ => $_ } @implemented_myself;
+	for my $p ( @{$args{parts}} ) {
+	    my @supp = $p->SUPPORTED_DTYPES;
+	    delete @supp{ $p->SUPPORTED_DTYPES };
+	}
+	return values %supp;
+    }
+}
+
 sub new_analyzer {
     my ($class,%args) = @_;
 
@@ -170,7 +187,7 @@ sub new_analyzer {
 	$pi = @imp+$pi if $pi<0;
 
 	$DEBUG && debug("dataf[$dir][$pi] '$data'/".length($data)." "
-	    .(defined $pos ? "pos=$pos":'<nooff>' )." "
+	    .($pos ? "pos=$pos":'<nooff>' )." "
 	    .( $type||'' )
 	    ." adj=$gbadjust/$gpadjust eof=$eof\n"
 	    .$_dump_part->($dir,$pi)
@@ -186,10 +203,10 @@ sub new_analyzer {
 	# data from buffers with adjustments can never be merged, because
 	# adjustments are considered beeing at the end of the buf, not
 	# somewhere in the middle
-	if ( defined $pos and $endpos > $pos ) {
+	if ( $pos and $endpos > $pos ) {
 	    die "overlapping data ($pos,$endpos)"
 
-	} elsif ( ! defined $pos or $endpos == $pos
+	} elsif ( ( ! $pos or $endpos == $pos ) 
 	    and ( ! $bufs->[-1]{type} or ($type||0) == $bufs->[-1]{type} )
 	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} ) {
 	    # append
@@ -331,7 +348,7 @@ sub new_analyzer {
 			# if there was a gap before we need to send the current
 			# offset
 			$imp[$pi]->data($dir,$data,
-			    $p->{gap} ? ($buf->{endpos}):());
+			    $p->{gap} ? $buf->{endpos}:0 );
 		    } else {
 			# pass w/o analyzer
 			# this causes a gap in the stream to the analyzer
@@ -347,7 +364,7 @@ sub new_analyzer {
 		# IMP_MAXOFFSET, otherwise the analyzer was not interested in
 		# the end of data at all
 		if ( $buf->{eof} ) {
-		    $imp[$pi]->data($dir,'', $p->{gap} ? ($p->{fwapos}):())
+		    $imp[$pi]->data($dir,'', $p->{gap} ? $p->{fwapos}:0 )
 			unless $p->{lptype} == IMP_PASS
 			and $p->{lppos} == IMP_MAXOFFSET;
 		}
@@ -516,7 +533,7 @@ sub new_analyzer {
 			$imp[$pi]->data(
 			    $dir,
 			    substr($buf->{data},-$needa,$needa),
-			    $p->{gap} ? ($buf->{endpos}-$ld):(),
+			    $p->{gap} ? $buf->{endpos}-$ld:0,
 			);
 		    }
 		    $p->{fwapos} = $buf->{endpos};
@@ -528,7 +545,7 @@ sub new_analyzer {
 	    # analyzer too, except if we got a free ride with IMP_PASS of
 	    # IMP_MAXOFFSET.
 	    if ( $bufs->[-1]{eof} ) {
-		$imp[$pi]->data($dir,'', $p->{gap} ? ($p->{fwapos}):())
+		$imp[$pi]->data($dir,'', $p->{gap} ? $p->{fwapos}:0)
 		    unless $p->{lptype} == IMP_PASS
 		    and $p->{lppos} == IMP_MAXOFFSET;
 	    }
@@ -640,7 +657,7 @@ sub new_analyzer {
 		    # badjust is the adjustment done in the buffer, e.g. how
 		    # much bytes got added (or removed if badjust<0)
 		    my $badjust = length($newdata) - ($offset - $startpos);
-		    $DEBUG && debug("impcb[%d][%d] %s %d '%s' badjust=%d ".
+		    $DEBUG && debug("impcb[%d][%d] %s %d '%s' badjust=%d ",
 			$dir,$pi,$rtype,$offset,$newdata,$badjust);
 
 		    # gbadjust is the sum of all existing gbadjust from the
@@ -825,7 +842,9 @@ sub new_analyzer {
 }
 
 sub data {
-    my ($self,$dir,$data,$offset) = @_;
+    my ($self,$dir,$data,$offset,$dtype) = @_;
+    croak("only stream data are supported") if defined $dtype 
+	&& $dtype != IMP_DATA_STREAM;
     $self->{dataf}(
 	$dir ? -1:0, # input part
 	$dir,

@@ -136,7 +136,7 @@ sub new_analyzer {
 
     $self->{dataf} = sub {
 	my ($dir,$data,$offset) = @_;
-	defined $offset and die "gaps($offset) not yet supported";
+	$offset and die "gaps($offset) not yet supported";
 
 	my $eof = 0;
 	if ( $data eq '' ) {
