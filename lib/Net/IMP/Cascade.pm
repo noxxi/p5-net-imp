@@ -50,14 +50,14 @@ use Data::Dumper;
     );
 
     # restrict given dtypes to the ones supported by all
-    sub SUPPORTED_DTYPES {
-	my ($self,%args) = @_;
-	my %supp = map { $_ => $_ } @implemented_myself;
+    sub supported_dtypes {
+	my ($self,$types,%args) = @_;
+	my @my_supp = @implemented_myself;
 	for my $p ( @{$args{parts}} ) {
-	    my @supp = $p->SUPPORTED_DTYPES;
-	    delete @supp{ $p->SUPPORTED_DTYPES };
+	    my %p_supp = map { $_ => 1 } $p->supported_dtypes($types);
+	    @my_supp = grep { $p_supp{$_} } @my_supp or last;
 	}
-	return values %supp;
+	return @my_supp;
     }
 }
 

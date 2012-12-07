@@ -16,7 +16,7 @@ sub USED_RTYPES { return (
     IMP_ACCTFIELD, # to account the session log file
 )}
 
-sub SUPPORTED_DTYPES { return (
+sub supported_dtypes { return (
     # both stream and packet data are supported
     IMP_DATA_STREAM,
     IMP_DATA_PACKET,

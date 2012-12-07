@@ -1,7 +1,8 @@
 use strict;
 use warnings;
 
-package Net::IMP 0.47;
+package Net::IMP;
+our $VERSION = 0.48;
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -43,12 +44,12 @@ our %EXPORT_TAGS = ( log => \@log_levels );
 
 # data types
 # These two are the basic types, more application specific types might
-# be defined somewhere else and be mapped to a number within SUPPORTED_DTYPES.
+# be defined somewhere else and be mapped to a number within supported_dtypes.
 # The only important thing is, that streaming data should be 0, while
 # packetized data (like HTTP header or UDP datagrams) should be > 0
 # If no explicit type is given in sub data, it will assume IMP_DATA_STREAM.
-use constant IMP_DATA_STREAM  => dualvar(0x0,'stream');
-use constant IMP_DATA_PACKET  => dualvar(0x1,'packet');
+use constant IMP_DATA_STREAM  => dualvar(0x0,'data.stream');
+use constant IMP_DATA_PACKET  => dualvar(0x1,'data.packet');
 
 
 # the numerical order of the constants describes priority when
@@ -92,7 +93,7 @@ sub USED_RTYPES {}
 
 # by default only streaming data are supported
 # override this with @list of data types implemented by the class
-sub SUPPORTED_DTYPES { (IMP_DATA_STREAM) }
+sub supported_dtypes { (IMP_DATA_STREAM) }
 
 sub new_factory {
     my ($class,%args) = @_;
@@ -105,7 +106,7 @@ sub new_factory {
 	}
     }
     if ( my $dt = delete $args{dtypes} ) {
-	my %supp = map { $_ => $_ } $class->SUPPORTED_DTYPES(%args);
+	my %supp = map { $_ => $_ } $class->supported_dtypes($dt,%args);
 	my @both = grep { exists $supp{$_} } @$dt;
 	if ( ! @both ) {
 	    croak("no common set of data types. want=@$dt have=".join(' ',keys %supp));
@@ -124,10 +125,10 @@ sub new_factory {
 	my ($class,$fargs) = @$self;
 	return $class->USED_RTYPES(%$fargs,%args);
     }
-    sub SUPPORTED_DTYPES {
-	my ($self,%args) = @_;
+    sub supported_dtypes {
+	my ($self,$types,%args) = @_;
 	my ($class,$fargs) = @$self;
-	return $class->SUPPORTED_DTYPES(%$fargs,%args);
+	return $class->supported_dtypes($types,%$fargs,%args);
     }
     sub new_analyzer {
 	my ($self,%args) = @_;
@@ -270,14 +271,15 @@ This creates a new factory object which is later used to create the context.
 In the default implementation, an argument 
 C<< rtypes => [ IMP_PASS, IMP_PREPASS... ] >>
 can be given where the caller can specify the response types it supports.
-This will be checked against the list returned by C<< $class->USED_RTYPES() >>
-and if the class uses response types not implemented by the caller it will
-croak.
+This will be checked against the list returned by 
+C<< $class->USED_RTYPES(%args) >> and if the class uses response types not
+implemented by the caller it will croak.
 
 Also an argument C<< dtypes => [ IMP_DATA_STREAM, IMP_DATA_PACKET...] >> can be
 given to specify the list of data types supported by the caller. 
 All dtypes not supported by the implementation will be removed from the given
-list, maintaining the order of entries in the list.
+list, maintaining the order of entries in the list. The supported dtypes are
+determined using C<< $class->supported_dtypes(%args) >>.
 
 =item $factory->new_analyzer(%args) => $self|undef
 
@@ -323,12 +325,30 @@ PASS or PASS_PATTERN, so that the analyzer can resynchronize the internal
 position value with the original position in the data stream.
 In any other case it should be set to 0.
 
-C<$type> is the type of the data. If not given, IMP_DATA_STREAM will be assumed,
-which is the only type available for streaming data, e.g. where the size and
-number of chunks does not matter. 
-Any other types are considered packet-like, e.g. each chunk is a seperate entity
-for analysis (but the analysis result of one packet might still affect the
-analysis of later packets).
+C<$type> is the type of the data.
+If not given, IMP_DATA_STREAM will be assumed.
+There are two global data type definitions:
+
+=over 4
+
+=item IMP_DATA_STREAM
+
+This is for streaming data, e.g. chunks from these datatypes can be
+concatinated and analyzed together, parts can be replaced etc.
+
+=item IMP_DATA_PACKET
+
+This is for generic packetized data, where each chunk (e.g. call to C<data>)
+contains a single packet, which should be analyzed as a separate entity.
+This means no concatinating with previous or future chunks and no replacing of
+only parts of the packet.
+Also, any offsets given in calls to C<data> or in the results need to be at
+packet boundary (or IMP_MAX_OFFSET).
+
+=back
+
+All other data types are considered subtypes of IMP_DATA_PACKET and thus share
+the same restrictions.
 
 Results will be delivered through the callback or via C<poll_results>.
 
@@ -336,6 +356,41 @@ Results will be delivered through the callback or via C<poll_results>.
 
 Returns outstanding results.
 If a callback is attached, no results will be delivered this way.
+
+=item ($factory|class)->supported_dtypes($types,%args)
+
+This method is used withing C<new_factory> to get the list of data types
+supported by the application. It can also be used later to restrict the types
+used by the factory to the given types and to associate the type string
+identifier with the typ number inside the factory based on the values given by
+the caller.
+
+C<%args> are the arguments from C<new_analyzer>.
+They are only given when called with C<class>.
+
+C<$types> is a \@list of available types. Each type is a dualvar (see
+C<dualvar> in L<Scalar::Util>) consisting of a string identifier and a number.
+Currently defined are:
+
+=over 4
+
+=item IMP_DATA_STREAM - (0,'stream')
+
+=item IMP_DATA_PACKET - (1,'packet')
+
+=back
+
+All other types must have a number>1.
+
+This method returns the list of supported types (dualvars again).
+
+=item ($factory|class)->USED_RTYPES(%args)
+
+This function returns the list of the IMP return codes, which are used by the
+IMP module. 
+C<%args> are the arguments from C<new_factory>, in case the list of return
+codes depends on the configuration.
+They are only given when called with C<class>.
 
 =item Net::IMP->set_debug
 
