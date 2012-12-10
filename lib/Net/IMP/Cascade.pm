@@ -3,6 +3,7 @@ use warnings;
 package Net::IMP::Cascade;
 use base 'Net::IMP::Base';
 use fields (
+    'parts',    # analyzer objects
     # we do everything with closures inside new_analyzer here, so that the
     # object has only fields for accessing some closures from subs
     'dataf',    # called from sub data
@@ -34,7 +35,7 @@ use Data::Dumper;
     sub USED_RTYPES {
 	my ($self,%args) = @_;
 	my %used;
-	for my $p ( @{$args{parts}} ) {
+	for my $p ( @{$args{parts} || $self->{parts}} ) {
 	    my %u = map { $_ => 1 } $p->USED_RTYPES;
 	    %used = (%used,%u);
 	    delete @u{@implemented_myself};
@@ -53,7 +54,7 @@ use Data::Dumper;
     sub supported_dtypes {
 	my ($self,$types,%args) = @_;
 	my @my_supp = @implemented_myself;
-	for my $p ( @{$args{parts}} ) {
+	for my $p ( @{$args{parts} || $self->{parts} } ) {
 	    my %p_supp = map { $_ => 1 } $p->supported_dtypes($types);
 	    @my_supp = grep { $p_supp{$_} } @my_supp or last;
 	}
@@ -67,6 +68,7 @@ sub new_analyzer {
     my $p     = delete $args{parts};
     my $self  = $class->SUPER::new_analyzer(%args);
     my @imp = map { $_->new_analyzer(%args) } @$p;
+    $self->{parts} = \@imp;
 
     # $parts[$dir][$pi] is the part for direction $dir, analyzer $pi
     my @parts;

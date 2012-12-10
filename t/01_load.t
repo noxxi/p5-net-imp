@@ -15,14 +15,21 @@ test: for (
     [ 'Net::IMP::Filter' ],
     [ 'Net::IMP::SessionLog' ],
     [ 'Net::IMP::Cascade' ],
-    [ 'Net::IMP::HTTP_AddXFooHeader' => 'Net::Inspect' ],
+    [ 'Net::IMP::HTTP_AddXFooHeader' => 'Net::Inspect!0.24' ],
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
     ){
     my ($mod,@deps) = @$_;
     for (@deps) {
-	eval "require $_" and next;
-	diag("skip $mod because dependency $_ is missing");
-	next test;
+	my ($dep,$want_version) = split('!');
+	if ( ! eval "require $dep" ) {
+	    diag("cannot load $dep");
+	} elsif ( $want_version ) {
+	    no strict 'refs';
+	    my $v = ${"${dep}::VERSION"};
+	    if ( ! $v or $v < $want_version ) {
+		diag("wrong version $dep - have $v want $want_version");
+	    }
+	}
     }
     push @mods,$mod;
 }
