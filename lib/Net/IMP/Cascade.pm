@@ -46,19 +46,16 @@ use Data::Dumper;
 }
 
 {
-    my @implemented_myself = (
-	IMP_DATA_STREAM
-    );
 
     # restrict given dtypes to the ones supported by all
     sub supported_dtypes {
 	my ($self,$types,%args) = @_;
-	my @my_supp = @implemented_myself;
-	for my $p ( @{$args{parts} || $self->{parts} } ) {
-	    my %p_supp = map { $_ => 1 } $p->supported_dtypes($types);
-	    @my_supp = grep { $p_supp{$_} } @my_supp or last;
+	my %supp;
+	my $parts = $args{parts} || $self->{parts};
+	for my $p ( @$parts ) {
+	    $supp{$_}{$p}=1 for $p->supported_dtypes($types);
 	}
-	return @my_supp;
+	return grep { keys %{ $supp{$_}} == @$parts } @$types;
     }
 }
 
@@ -151,8 +148,9 @@ sub new_analyzer {
 	    $t.= sprintf("[%d] $imp[$i] fwa(%d) lp=%s(%d) gap(%d)\n",
 		$i,$p->{fwapos},$p->{lptype},$p->{lppos},$p->{gap});
 	    for my $buf (@$bufs) {
-		$t .= sprintf(" - %s(%s) Badj(%d) Padj(%d) Gadj(%d) %s'%s'\n",
-		    $buf->{type},
+		$t .= sprintf(" - %s %s(%s) Badj(%d) Padj(%d) Gadj(%d) %s'%s'\n",
+		    $buf->{dtype} // '<undef>',
+		    $buf->{rtype},
 		    length($buf->{data})
 			? ($buf->{endpos}-length($buf->{data})+1)
 			    ."..$buf->{endpos}"
@@ -171,27 +169,28 @@ sub new_analyzer {
     # the data function
     # called from sub data on new data and from $process when data are finished
     # in on part and should be transferred into the next part
-    #  $pi   - index into parts
-    #  $dir  - direction (e.g. target part is $parts[$dir][$pi])
-    #  $data - the data
-    #  $pos  - offset of $data relativ to input into current part $pi
-    #  $type - if called from previous part we get the result type of the data,
+    #  $pi    - index into parts
+    #  $dir   - direction (e.g. target part is $parts[$dir][$pi])
+    #  $data  - the data
+    #  $pos   - offset of $data relativ to input into current part $pi
+    #  $dtype - data type of data (stream, packet...)
+    #  $rtype - if called from previous part we get the result type of the data,
     #    e.g. if they are result of replacement, pass....
     #    this needs to be propagated thru the parts and will be used in the
     #    final result type
-    #  $eof  - are $data the last data in this direction?
+    #  $eof   - are $data the last data in this direction?
     #  $gbadjust, $gpadjust - fields from buf which was done in previous part
     #    and got transferred into this part. Needed to accumulate adjustments
     #    over all parts.
     my $process;
     my $_dataf = sub {
-	my ($pi,$dir,$data,$pos,$type,$eof,$gbadjust,$gpadjust) = @_;
+	my ($pi,$dir,$data,$pos,$dtype,$rtype,$eof,$gbadjust,$gpadjust) = @_;
 	$pi = @imp+$pi if $pi<0;
 
-	$DEBUG && debug("dataf[$dir][$pi] '$data'/".length($data)." "
+	$DEBUG && debug("dataf[$dir][$pi] len=".length($data)." "
 	    .($pos ? "pos=$pos":'<nooff>' )." "
-	    .( $type||'' )
-	    ." adj=$gbadjust/$gpadjust eof=$eof\n"
+	    .( $rtype||'' )
+	    ." $dtype adj=$gbadjust/$gpadjust eof=$eof\n"
 	    .$_dump_part->($dir,$pi)
 	);
 	my $p = $parts[$dir][$pi];
@@ -199,9 +198,9 @@ sub new_analyzer {
 	my $endpos = $bufs->[-1]{endpos};
 
 	# add data to buf:
-	# if there is no gap and type of buf matches and no adjustments
-	# are used we can add data to an existing buf, otherwise we need to
-	# create a new one
+	# if there is no gap and rtype of buf matches and no adjustments are 
+	# used and dtype is IMP_DATA_STREAM, then we can add data to an 
+	# existing buf, otherwise we need to create a new one
 	# data from buffers with adjustments can never be merged, because
 	# adjustments are considered beeing at the end of the buf, not
 	# somewhere in the middle
@@ -209,14 +208,18 @@ sub new_analyzer {
 	    die "overlapping data ($pos,$endpos)"
 
 	} elsif ( ( ! $pos or $endpos == $pos ) 
-	    and ( ! $bufs->[-1]{type} or ($type||0) == $bufs->[-1]{type} )
-	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} ) {
+	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} )
+	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} 
+	    and ( ! defined $bufs->[-1]{dtype} or 
+		$dtype == IMP_DATA_STREAM and $dtype == $bufs->[-1]{dtype} )
+	    ) {
 	    # append
 	    $endpos += length($data);
 	    $bufs->[-1]{data} .= $data;
 	    $bufs->[-1]{endpos} = $endpos;
 	    $bufs->[-1]{eof} = $eof;
-	    $bufs->[-1]{type} ||= $type||0;
+	    $bufs->[-1]{rtype} ||= $rtype||0;
+	    $bufs->[-1]{dtype} = $dtype;
 
 	} else {
 	    # gap, different type or adjustments involved
@@ -224,7 +227,8 @@ sub new_analyzer {
 	    push @$bufs, Net::IMP::Cascade::_Buf->new(
 		data      => $data,
 		endpos    => $endpos,
-		type      => $type||0,
+		dtype     => $dtype||0,
+		rtype     => $rtype||0,
 		eof       => $eof,
 		badjust   => 0,
 		gbadjust  => $gbadjust,
@@ -285,13 +289,22 @@ sub new_analyzer {
 		    # IMP_PASS but buf.type is IMP_PREPASS this will result in
 		    # IMP_PREPASS. The types are sorted in Net::IMP by
 		    # importance so we can just use the largest
-		    $buf->{type} = $p->{lptype} if $p->{lptype}>$buf->{type};
+		    $buf->{rtype} = $p->{lptype} if $p->{lptype}>$buf->{rtype};
 
 		} elsif ( $keep < length($buf->{data}) ) {
 		    # we can forward parts of buf only
 		    # split $buf, $keep bytes will be kept in $bufs
 		    $DEBUG && debug("fwd part(buf) lppos=%d endpos=%d keep=%d",
 			$p->{lppos}, $buf->{endpos}, $keep);
+
+		    if ( $buf->{dtype} != IMP_DATA_STREAM ) {
+			# only streaming data might be split into arbitrary
+			# chunks, others can only be handled as whole packets
+			croak( sprintf(
+			    "fwd part is not allowed for %s lppos=%d endpos=%d keep=%d",
+			    $buf->{dtype},$p->{lppos}, $buf->{endpos}, $keep));
+		    }
+
 		    my $data = substr($buf->{data},-$keep,$keep,'');
 
 		    # put buf with rest of data back into @$bufs
@@ -305,13 +318,14 @@ sub new_analyzer {
 			padjust  => $buf->{padjust},
 			gpadjust => $buf->{gpadjust},
 			eof      => $buf->{eof},
-			type     => $buf->{type},
+			dtype    => $buf->{dtype},
+			rtype    => $buf->{rtype},
 		    );
 
 		    # adjust endpos of buf we forward
 		    $buf->{endpos} -= $keep;
 		    # adjust type: the more important wins
-		    $buf->{type} = $p->{lptype} if $p->{lptype}>$buf->{type};
+		    $buf->{rtype} = $p->{lptype} if $p->{lptype}>$buf->{rtype};
 
 		    # adjustments and eof will stay with rest of data in @$bufs
 		    # padjust and gpadjust needs to be fixed to not contain any
@@ -349,8 +363,12 @@ sub new_analyzer {
 			# call analyzer for current part
 			# if there was a gap before we need to send the current
 			# offset
-			$imp[$pi]->data($dir,$data,
-			    $p->{gap} ? $buf->{endpos}:0 );
+			$imp[$pi]->data(
+			    $dir,
+			    $data,
+			    $p->{gap} ? $buf->{endpos}:0,
+			    $buf->{dtype},
+			);
 		    } else {
 			# pass w/o analyzer
 			# this causes a gap in the stream to the analyzer
@@ -366,16 +384,21 @@ sub new_analyzer {
 		# IMP_MAXOFFSET, otherwise the analyzer was not interested in
 		# the end of data at all
 		if ( $buf->{eof} ) {
-		    $imp[$pi]->data($dir,'', $p->{gap} ? $p->{fwapos}:0 )
-			unless $p->{lptype} == IMP_PASS
-			and $p->{lppos} == IMP_MAXOFFSET;
+		    if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+			$imp[$pi]->data(
+			    $dir,
+			    '', 
+			    $p->{gap} ? $p->{fwapos}:0,
+			    $buf->{dtype},
+			)
+		    }
 		}
 
 		# now add to @fwd so it gets transferred to next part
 		push @fwd,$buf;
 		$DEBUG && debug("process[$dir][$pi] fwd %d bytes with %s,".
 		    "badjust=%d",
-		    length($buf->{data}),$buf->{type},$buf->{badjust});
+		    length($buf->{data}),$buf->{rtype},$buf->{badjust});
 	    }
 
 	    if ( ! @fwd and @$bufs == 1
@@ -428,7 +451,7 @@ sub new_analyzer {
 	    if ( $pi == ($dir ? 0:$#imp) ) {
 		# propagate result up
 
-		if ( ! $fw->{type} ) {
+		if ( ! $fw->{rtype} ) {
 		    # Type 0 should only be in a buffer, which got not analyzed
 		    # or did not got passed because of IMP_(PRE)PASS.
 		    # In this step in processing we should not have such
@@ -448,26 +471,26 @@ sub new_analyzer {
 		    = $fw->{endpos}     # endpos relativ to this part
 		    - $fw->{gpadjust}   # minus all adjustments so far
 		    + $fw->{padjust};   # but ignoring adjustments in this part
-		#debug( "up $fw->{type} ".
+		#debug( "up $fw->{rtype} ".
 		#   "eob($eob)=$fw->{endpos}-$fw->{gpadjust}".
 		#   "+$fw->{padjust}\n".$_dump_part->($dir));
 
-		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{type},$dir,".
+		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{rtype},$dir,".
 		    "$eob=$fw->{endpos}-adjust");
 
 		if ( $eob < $global_lastpass[$dir]{pos} 
 		    or $global_lastpass[$dir]{pos} == IMP_MAXOFFSET ) {
 		    # we already issued an IMP_(PRE)PASS for this offset
 		    # no need to propagate
-		} elsif ( $fw->{type} ~~ [ IMP_PASS, IMP_PREPASS ]) {
+		} elsif ( $fw->{rtype} ~~ [ IMP_PASS, IMP_PREPASS ]) {
 		    # propagate IMP_(PRE)PASS
-		    $wself->run_callback([$fw->{type},$dir,$eob]);
-		} elsif ( $fw->{type} == IMP_REPLACE ) {
+		    $wself->run_callback([$fw->{rtype},$dir,$eob]);
+		} elsif ( $fw->{rtype} == IMP_REPLACE ) {
 		    # propagate IMP_REPLACE
-		    $wself->run_callback([$fw->{type},$dir,$eob,$fw->{data}]);
+		    $wself->run_callback([$fw->{rtype},$dir,$eob,$fw->{data}]);
 		} else {
 		    # should not happen if this code is correct
-		    die "cannot handle type $fw->{type}"
+		    die "cannot handle type $fw->{rtype}"
 		}
 
 	    } else {
@@ -493,7 +516,8 @@ sub new_analyzer {
 		    $dir,
 		    $fw->{data},
 		    $start,
-		    $fw->{type},
+		    $fw->{dtype},
+		    $fw->{rtype},
 		    $fw->{eof},
 		    $fw->{gbadjust},
 		    $fw->{gpadjust},
@@ -520,22 +544,29 @@ sub new_analyzer {
 		    if ( $needa>$ld ) {
 			# send everything, but we have a gap of size $needa-$ld
 			$DEBUG && debug("process[$dir][$pi] ".
-			    "-> data(%d,allbuf<%d>,%d)",
-			    $dir,$ld,$buf->{endpos});
-			$imp[$pi]->data($dir,$buf->{data},$buf->{endpos}-$ld);
+			    "-> data(%d,allbuf<%d>,%d,%s)",
+			    $dir,$ld,$buf->{endpos},$buf->{dtype});
+			$imp[$pi]->data(
+			    $dir,
+			    $buf->{data},
+			    $buf->{endpos}-$ld,
+			    $buf->{dtype},
+			);
 		    } else {
 			# the last $needa from buf needs to be analyzed (we
 			# skip optimization when $needa == $ld)
 			$DEBUG && debug("process[$dir][$pi] ".
-			    "-> data(%d,buf<%d,%d>,%s)",
+			    "-> data(%d,buf<%d,%d>,%s,%s)",
 			    $dir,
 			    $needa-$ld, $buf->{endpos},
-			    $p->{gap} ? $buf->{endpos}-$ld :''
+			    $p->{gap} ? $buf->{endpos}-$ld :'',
+			    $buf->{dtype},
 			);
 			$imp[$pi]->data(
 			    $dir,
 			    substr($buf->{data},-$needa,$needa),
 			    $p->{gap} ? $buf->{endpos}-$ld:0,
+			    $buf->{dtype},
 			);
 		    }
 		    $p->{fwapos} = $buf->{endpos};
@@ -547,9 +578,14 @@ sub new_analyzer {
 	    # analyzer too, except if we got a free ride with IMP_PASS of
 	    # IMP_MAXOFFSET.
 	    if ( $bufs->[-1]{eof} ) {
-		$imp[$pi]->data($dir,'', $p->{gap} ? $p->{fwapos}:0)
-		    unless $p->{lptype} == IMP_PASS
-		    and $p->{lppos} == IMP_MAXOFFSET;
+		if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+		    $imp[$pi]->data(
+			$dir,
+			'', 
+			$p->{gap} ? $p->{fwapos}:0,
+			$bufs->[-1]{dtype}
+		    )
+		}
 	    }
 	}
     };
@@ -667,11 +703,13 @@ sub new_analyzer {
 		    my $gbadjust = 0;
 
 		    my $bufs = $p->{bufs};
+		    my $dtype;
 		    while (1) {
 			my $buf = $bufs->[0];
+			$dtype = $buf->{dtype};
 			if ( $buf->{endpos} <= $offset ) {
 			    $DEBUG && debug("remove whole buffer (%s/%d)",
-				$buf->{type},$buf->{endpos});
+				$buf->{rtype},$buf->{endpos});
 
 			    # remove whole buffer
 			    shift(@$bufs);
@@ -696,9 +734,15 @@ sub new_analyzer {
 			} elsif ( $buf->{endpos} - $offset
 			    < length($buf->{data})) {
 			    $DEBUG && debug("remove part of buffer (%s/%d)",
-				$buf->{type},$buf->{endpos});
+				$buf->{rtype},$buf->{endpos});
 
 			    # Remove only first part of buffer up to $offset.
+			    # Partial replace is only available for stream data
+			    if ( $buf->{dtype} != IMP_DATA_STREAM ) {
+				croak( sprintf("cannot replace part of buffer %s (%s/%d)",
+				    $buf->{dtype},$buf->{rtype},$buf->{endpos}));
+			    }
+
 			    # No need to add to gbadjust because adjustments
 			    # are considered at the end of the buffer and we
 			    # keep the end.
@@ -739,7 +783,8 @@ sub new_analyzer {
 		    $process->($pi,$dir, Net::IMP::Cascade::_Buf->new(
 			data      => $newdata,
 			endpos    => $offset,
-			type      => IMP_REPLACE,
+			dtype     => $dtype,
+			rtype     => IMP_REPLACE,
 			badjust   => $badjust,
 			gbadjust  => $gbadjust,
 			padjust   => $bufs->[0]{padjust},
@@ -845,14 +890,13 @@ sub new_analyzer {
 
 sub data {
     my ($self,$dir,$data,$offset,$dtype) = @_;
-    croak("only stream data are supported") if defined $dtype 
-	&& $dtype != IMP_DATA_STREAM;
     $self->{dataf}(
 	$dir ? -1:0, # input part
 	$dir,
 	$data,
 	$offset,     # start of $data in input stream
-	0,           # type
+	$dtype // IMP_DATA_STREAM,  # data type
+	0,           # result type for this data from previous entry in cascade
 	$data eq '', # eof
 	0,           # gbadjust
 	0,           # gpadjust
@@ -867,14 +911,14 @@ sub DESTROY {
 # The fields got described at the beginning of new_analyzer.
 
 package Net::IMP::Cascade::_Buf;
-use fields qw(data endpos type badjust padjust gpadjust gbadjust eof);
+use fields qw(data endpos dtype rtype badjust padjust gpadjust gbadjust eof);
 sub new {
     my ($class,%args) = @_;
     my $self = fields::new($class);
     %$self = %args;
     $self->{data} //= '';
     $self->{$_} //= 0 for
-	(qw(endpos type badjust padjust gpadjust gbadjust eof));
+	(qw(endpos rtype badjust padjust gpadjust gbadjust eof));
     return $self;
 }
 

@@ -23,11 +23,13 @@ test: for (
 	my ($dep,$want_version) = split('!');
 	if ( ! eval "require $dep" ) {
 	    diag("cannot load $dep");
+	    next test;
 	} elsif ( $want_version ) {
 	    no strict 'refs';
 	    my $v = ${"${dep}::VERSION"};
 	    if ( ! $v or $v < $want_version ) {
 		diag("wrong version $dep - have $v want $want_version");
+		next test;
 	    }
 	}
     }
