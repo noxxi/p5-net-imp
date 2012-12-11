@@ -36,12 +36,12 @@ use Data::Dumper;
 	my ($self,%args) = @_;
 	my %used;
 	for my $p ( @{$args{parts} || $self->{parts}} ) {
-	    my %u = map { $_ => 1 } $p->USED_RTYPES;
+	    my %u = map { $_ => $_ } $p->USED_RTYPES;
 	    %used = (%used,%u);
 	    delete @u{@implemented_myself};
 	    croak "module ".$p->class." needs types ".join(' ',keys(%u)) if %u;
 	}
-	return keys(%used);
+	return values %used;
     }
 }
 

@@ -1,3 +1,6 @@
+0.51 2012/12/11
+- fix Cascade::USED_RTYPES to return dualvar constants for rtypes instead
+  of strings
 0.50 2012/12/10
 - make Cascade data type aware:
   - forward type into parts
