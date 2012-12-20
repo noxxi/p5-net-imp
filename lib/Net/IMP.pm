@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.51';
+our $VERSION = '0.52';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -92,8 +92,17 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 sub USED_RTYPES {}
 
 # by default only streaming data are supported
+# if USED_RTYPES shows, that no modification on the data will be done
+# it will return all types supported the caller wants
 # override this with @list of data types implemented by the class
-sub supported_dtypes { (IMP_DATA_STREAM) }
+sub supported_dtypes { 
+    my ($class,$dtypes,%args) = @_;
+    for my $rt ( $class->USED_RTYPES(%args)) {
+	# can modify data?
+	return (IMP_DATA_STREAM) if $rt ~~ [ IMP_REPLACE, IMP_TOSENDER ];
+    }
+    return @$dtypes; # nothing will be modified
+}
 
 sub new_factory {
     my ($class,%args) = @_;
@@ -171,10 +180,23 @@ Net::IMP - Inspection and Modification Protocol
 	return $self;
     }
 
+    # which return values we might return
+    sub USED_RTYPES { return (
+	IMP_PREPASS,   # everything will be forwarded unchanged, but logged
+	IMP_ACCTFIELD, # account the name of logfile
+    )}
+
+    # which data types we support
+    sub supported_dtypes [
+	my ($class,$dtypes) = @_;
+	# we support all types the caller supports
+	return @$dtypes;
+    }
+
     # new data for analysis, $offset should only be set if there are gaps
     # (e.g. when we PASSed data with offset in the future)
     sub data {
-	my ($self,$dir,$data,$offset) = @_;
+	my ($self,$dir,$data,$offset,$datatype) = @_;
 	... log data ...
     }
 
@@ -187,9 +209,9 @@ Net::IMP - Inspection and Modification Protocol
     my $analyzer = $factory->new_analyzer(...);
     $analyzer->set_callback(\&imp_cb);
 
-    $analyzer->data(0,'data from dir 0');
+    $analyzer->data(0,'data from dir 0',0,IMP_DATA_STREAM);
     .... will call imp_cb as soon as results are there ...
-    $analyzer->data(0,''); # eof from dir 0
+    $analyzer->data(0,'',0,IMP_DATA_STREAM); # eof from dir 0
 
     # callback for results
     sub imp_cb {
@@ -342,8 +364,13 @@ This is for generic packetized data, where each chunk (e.g. call to C<data>)
 contains a single packet, which should be analyzed as a separate entity.
 This means no concatinating with previous or future chunks and no replacing of
 only parts of the packet.
-Also, any offsets given in calls to C<data> or in the results need to be at
-packet boundary (or IMP_MAX_OFFSET).
+
+Also, any offsets given in calls to C<data> or in the results should be at
+packet boundary (or IMP_MAX_OFFSET), at least for data modifications.
+It will ignore (pre)pass which are not a packet boundary in the hope, that more
+(pre)pass will follow.
+A (pre)pass for some parts of a packet followed by a replacement is not allowed
+and will probably cause an exception.
 
 =back
 
@@ -382,7 +409,7 @@ Currently defined are:
 
 All other types must have a number>1.
 
-This method returns the list of supported types (dualvars again).
+This method returns the @list of supported types (dualvars again).
 
 =item ($factory|class)->USED_RTYPES(%args)
 

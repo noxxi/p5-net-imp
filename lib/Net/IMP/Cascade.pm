@@ -74,9 +74,10 @@ sub new_analyzer {
     # bufs - list of data buffers together with their state of processing
     #   each entry in bufs consists of a hash with
     #   - data: the data
+    #   - dtype: the type of data, e.g. IMP_DATA_STREAM, IMP_DATA_PACKET...
     #   - endpos: position of end of data, relativ to input stream of part
-    #   - type: type which caused data, eg IMP_PASS, IMP_REPLACE...
-    #     initially 0 (e.g. no type)
+    #   - rtype: result type, which caused this buffer, eg IMP_PASS, 
+    #     IMP_REPLACE... initially 0 (e.g. no type)
     #   - eof: true if last buf in stream
     #   because replacements might add/delete bytes we need to track these
     #   adjustments for a chunk thru all parts. Unfortunatly this is fairly
@@ -100,6 +101,11 @@ sub new_analyzer {
     # lppos  - offset from [l]ast [p]ass|pre[p]ass reply (related to input
     #   stream)
     # lptype - type of reply which updated lppos (pass|prepass)
+    # partial_pass - flag if we got a (pre)pass for a part of the last
+    #   buffer, in case we have a non-streaming data type.
+    #   partial pass will be ignored if followed by another (pre)pass, but
+    #   it cannot be followed by a replacement (only whole packets can be
+    #   replaced)
 
     # initialize @parts
     for( my $i=0;$i<@imp;$i++ ) {
@@ -111,6 +117,7 @@ sub new_analyzer {
 	    gap    => 0,
 	    lppos  => 0,
 	    lptype => IMP_PASS,
+	    partial_pass => 0,
 	};
 	lock_keys(%$h);
 
@@ -122,6 +129,7 @@ sub new_analyzer {
 	    gap    => 0,
 	    lppos  => 0,
 	    lptype => IMP_PASS,
+	    partial_pass => 0,
 	};
 	lock_keys(%$h);
     }
@@ -290,6 +298,7 @@ sub new_analyzer {
 		    # IMP_PREPASS. The types are sorted in Net::IMP by
 		    # importance so we can just use the largest
 		    $buf->{rtype} = $p->{lptype} if $p->{lptype}>$buf->{rtype};
+		    $p->{partial_pass} = 0;
 
 		} elsif ( $keep < length($buf->{data}) ) {
 		    # we can forward parts of buf only
@@ -300,9 +309,15 @@ sub new_analyzer {
 		    if ( $buf->{dtype} != IMP_DATA_STREAM ) {
 			# only streaming data might be split into arbitrary
 			# chunks, others can only be handled as whole packets
-			croak( sprintf(
-			    "fwd part is not allowed for %s lppos=%d endpos=%d keep=%d",
+			# thus just ignore this (pre)pass and hope we will get
+			# one with extends to the whole packet
+			$DEBUG && debug( sprintf(
+			    "ignoring partial (pre)pass for %s lppos=%d endpos=%d keep=%d",
 			    $buf->{dtype},$p->{lppos}, $buf->{endpos}, $keep));
+
+			# note the partial pass to croak if followed by replacement
+			$p->{partial_pass} = 1;
+			next;
 		    }
 
 		    my $data = substr($buf->{data},-$keep,$keep,'');
@@ -684,6 +699,9 @@ sub new_analyzer {
 		    # This should never happen (but can, if the analyzer is
 		    # bogus).
 		    die "cannot replace already processed data";
+
+		} elsif ( $p->{partial_pass} ) {
+		    die "cannot replace part of packet (after partially passed data)";
 
 		} else {
 		    # The replacement consists of two pieces:

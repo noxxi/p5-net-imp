@@ -1,3 +1,8 @@
+0.52 2012/12/20
+- Cascade: allow and ignore (pre)pass for parts of data packets (e.g.
+  packetized, not streamed data), as long as it is not followed by a
+  replacement for other parts of packet
+- update documentation regarding non-stream data
 0.51 2012/12/11
 - fix Cascade::USED_RTYPES to return dualvar constants for rtypes instead
   of strings
