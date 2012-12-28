@@ -207,7 +207,7 @@ sub new_analyzer {
 
 	# add data to buf:
 	# if there is no gap and rtype of buf matches and no adjustments are 
-	# used and dtype is IMP_DATA_STREAM, then we can add data to an 
+	# used and dtype is stream type, then we can add data to an 
 	# existing buf, otherwise we need to create a new one
 	# data from buffers with adjustments can never be merged, because
 	# adjustments are considered beeing at the end of the buf, not
@@ -215,11 +215,14 @@ sub new_analyzer {
 	if ( $pos and $endpos > $pos ) {
 	    die "overlapping data ($pos,$endpos)"
 
-	} elsif ( ( ! $pos or $endpos == $pos ) 
-	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} )
-	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} 
-	    and ( ! defined $bufs->[-1]{dtype} or 
-		$dtype == IMP_DATA_STREAM and $dtype == $bufs->[-1]{dtype} )
+	} elsif ( 
+	    ( ! $pos or $endpos == $pos ) # no gap
+	    # caused by same result type
+	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} ) 
+	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} # no adjustments 
+	    and ( # same streaming data type
+		! defined $bufs->[-1]{dtype} or 
+		$dtype <=0 and $dtype == $bufs->[-1]{dtype} )
 	    ) {
 	    # append
 	    $endpos += length($data);
@@ -306,7 +309,7 @@ sub new_analyzer {
 		    $DEBUG && debug("fwd part(buf) lppos=%d endpos=%d keep=%d",
 			$p->{lppos}, $buf->{endpos}, $keep);
 
-		    if ( $buf->{dtype} != IMP_DATA_STREAM ) {
+		    if ( $buf->{dtype} >0 ) {
 			# only streaming data might be split into arbitrary
 			# chunks, others can only be handled as whole packets
 			# thus just ignore this (pre)pass and hope we will get
@@ -756,7 +759,7 @@ sub new_analyzer {
 
 			    # Remove only first part of buffer up to $offset.
 			    # Partial replace is only available for stream data
-			    if ( $buf->{dtype} != IMP_DATA_STREAM ) {
+			    if ( $buf->{dtype} >0 ) {
 				croak( sprintf("cannot replace part of buffer %s (%s/%d)",
 				    $buf->{dtype},$buf->{rtype},$buf->{endpos}));
 			    }

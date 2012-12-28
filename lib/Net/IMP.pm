@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.52';
+our $VERSION = '0.53';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -45,7 +45,7 @@ our %EXPORT_TAGS = ( log => \@log_levels );
 # data types
 # These two are the basic types, more application specific types might
 # be defined somewhere else and be mapped to a number within supported_dtypes.
-# The only important thing is, that streaming data should be 0, while
+# The only important thing is, that streaming data should be <=0, while
 # packetized data (like HTTP header or UDP datagrams) should be > 0
 # If no explicit type is given in sub data, it will assume IMP_DATA_STREAM.
 use constant IMP_DATA_STREAM  => dualvar(0x0,'data.stream');
@@ -91,7 +91,7 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 # override this with @list of response types implemented by the class
 sub USED_RTYPES {}
 
-# by default only streaming data are supported
+# by default only IMP_DATA_STREAM is supported
 # if USED_RTYPES shows, that no modification on the data will be done
 # it will return all types supported the caller wants
 # override this with @list of data types implemented by the class
@@ -353,12 +353,12 @@ There are two global data type definitions:
 
 =over 4
 
-=item IMP_DATA_STREAM
+=item IMP_DATA_STREAM (0)
 
-This is for streaming data, e.g. chunks from these datatypes can be
+This is for generic streaming data, e.g. chunks from these datatypes can be
 concatinated and analyzed together, parts can be replaced etc.
 
-=item IMP_DATA_PACKET
+=item IMP_DATA_PACKET (1)
 
 This is for generic packetized data, where each chunk (e.g. call to C<data>)
 contains a single packet, which should be analyzed as a separate entity.
@@ -374,8 +374,10 @@ and will probably cause an exception.
 
 =back
 
-All other data types are considered subtypes of IMP_DATA_PACKET and thus share
-the same restrictions.
+All other data types are considered either subtypes of IMP_DATA_PACKET
+(value >0) or of IMP_DATA_STREAM (value<=0) and share their restrictions.
+Also only streaming data of the same type can be concatinated and
+analyzed together.
 
 Results will be delivered through the callback or via C<poll_results>.
 
@@ -407,7 +409,8 @@ Currently defined are:
 
 =back
 
-All other types must have a number>1.
+All other packet types must have a number>1, while all other streaming types
+must have number<0.
 
 This method returns the @list of supported types (dualvars again).
 
