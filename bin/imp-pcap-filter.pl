@@ -13,19 +13,18 @@ use Net::IMP;
 use Net::IMP::Cascade;
 use Net::IMP::Debug;
 
-# rtypes we support in this program
-my @rtypes = (
-    IMP_PASS,
-    IMP_PREPASS,
-    IMP_DENY,
-    IMP_REPLACE,
-    IMP_LOG,
-    IMP_ACCTFIELD,
-);
-
-my @dtypes = (
-    IMP_DATA_STREAM,
-);
+# interface we support in this program
+my @interface = ([ 
+    IMP_DATA_STREAM, 
+    [
+	IMP_PASS,
+	IMP_PREPASS,
+	IMP_DENY,
+	IMP_REPLACE,
+	IMP_LOG,
+	IMP_ACCTFIELD,
+    ]
+]);
 
 
 sub usage {
@@ -72,10 +71,9 @@ for my $module (@module) {
 	or die "invalid module $module";
     eval "require $mod" or die "cannot load $module";
     my %args = $mod->str2cfg($args//'');
-    push @factory, $mod->new_factory(%args, 
-	rtypes => \@rtypes, 
-	dtypes => \@dtypes,
-    ) or croak("cannot create Net::IMP factory for $mod");
+    my $factory = $mod->new_factory(%args) or 
+	croak("cannot create Net::IMP factory for $mod");
+    push @factory, $factory;
 }
 
 my $imp_factory;
@@ -83,11 +81,11 @@ if (@factory == 1) {
     $imp_factory = $factory[0];
 } elsif (@factory) {
     $imp_factory = Net::IMP::Cascade->new_factory(
-	rtypes => \@rtypes, 
-	dtypes => \@dtypes,
 	parts => \@factory 
     ) or croak("cannot create factory from Net::IMP::Cascade");
 }
+$imp_factory->interface(@interface) or 
+    croak("cannot use modules - wrong interface");
 
 my $cw  = ConnWriter->new($pcap_out,$imp_factory);
 my $tcp = Net::Inspect::L4::TCP->new($cw);

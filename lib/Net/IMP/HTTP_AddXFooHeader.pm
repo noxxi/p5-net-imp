@@ -98,15 +98,17 @@ use Net::IMP; # import IMP_ constants
 use Carp 'croak';
 use Scalar::Util 'weaken';
 
-sub USED_RTYPES {
-    return (
+sub INTERFACE { return ([
+    IMP_DATA_STREAM,
+    [
 	# we use PREPASS to make sure, that we get all data to maintain
 	# internal state, because we don't support gaps yet
 	IMP_PREPASS,  # pass
 	IMP_REPLACE,  # replace, insert header
 	IMP_DENY,     # on error
-    );
-}
+    ]
+])}
+
 
 
 # Create a new object for the analysis context (e.g. HTTP connection).

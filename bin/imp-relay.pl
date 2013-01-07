@@ -70,9 +70,10 @@ for my $l (@listen) {
 	    or die "invalid module $module";
 	eval "require $mod" or die "cannot load $mod args=$args: $@";
 	my %args = $mod->str2cfg($args//'');
-	$imp_factory = $mod->new_factory(
-	    dtypes => [ IMP_DATA_STREAM ],
-	    rtypes => [
+	$imp_factory = $mod->new_factory(%args);
+	$imp_factory && $imp_factory->interface([
+	    IMP_DATA_STREAM,
+	    [
 		IMP_PASS,
 		IMP_PREPASS,
 		IMP_DENY,
@@ -81,8 +82,7 @@ for my $l (@listen) {
 		IMP_LOG,
 		IMP_ACCTFIELD,
 	    ],
-	    %args
-	) or croak("cannot create Net::IMP factory for $mod");
+	]) or croak("cannot create Net::IMP factory for $mod");
     }
 
     for my $laddr (@laddr) {

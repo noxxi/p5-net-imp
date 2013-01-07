@@ -17,16 +17,17 @@ use Net::IMP; # import IMP_ constants
 use Net::IMP::Debug;
 use Carp 'croak';
 
-sub USED_RTYPES {
-    my ($self,%args) = @_;
+sub INTERFACE {
+    my Net::IMP::Pattern $factory = shift;
+    my $action = $factory->{factory_args}{action};
     my @rv = IMP_PASS;
     push @rv,
-	$args{action} eq 'deny'    ? IMP_DENY :
-	$args{action} eq 'reject'  ? (IMP_REPLACE, IMP_TOSENDER) :
-	$args{action} eq 'replace' ? IMP_REPLACE :
-	! $args{action}            ? IMP_DENY :
-	croak("invalid action $args{action}");
-    return @rv;
+	$action eq 'deny'    ? IMP_DENY :
+	$action eq 'reject'  ? (IMP_REPLACE, IMP_TOSENDER) :
+	$action eq 'replace' ? IMP_REPLACE :
+	! $action            ? IMP_DENY :
+	croak("invalid action $action");
+    return [ IMP_DATA_STREAM, \@rv ];
 };
 
 sub validate_cfg {
@@ -69,22 +70,26 @@ sub validate_cfg {
 
 # create new analyzer object
 sub new_analyzer {
-    my ($class,%args) = @_;
+    my ($factory,%args) = @_;
+    my $fargs = $factory->{factory_args};
 
     my $rxlen;
-    my $rx = delete $args{rx};
+    my $rx = $fargs->{rx};
     if ($rx) {
-	$rxlen = delete $args{rxlen};
+	$rxlen = $fargs->{rxlen};
     } else {
-	$rx = delete $args{string};
+	$rx = $fargs->{string};
 	$rxlen = length($rx);
 	$rx = qr/\Q$rx/;
     }
 
-    my Net::IMP::Pattern $self = $class->SUPER::new_analyzer(
-	%args, # rxdir, actdata, action, cb, meta
-	rx => $rx,
-	rxlen => $rxlen,
+    my Net::IMP::Pattern $self = $factory->SUPER::new_analyzer(
+	%args, # cb, meta
+	rx      => $rx,
+	rxlen   => $rxlen,
+	rxdir   => $fargs->{rxdir},
+	action  => $fargs->{action},
+	actdata => $fargs->{actdata},
 	buf => ['',''],  # per direction
 	offset => [0,0], # per direction
     );

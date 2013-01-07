@@ -16,7 +16,12 @@ use Net::IMP; # import IMP_ constants
 use Net::IMP::Debug;
 use Carp 'croak';
 
-sub USED_RTYPES { (IMP_PASS,IMP_DENY) }
+sub INTERFACE { return (
+    [
+	IMP_DATA_STREAM,          # only stream data for now
+	[ IMP_PASS, IMP_DENY ]
+    ]
+)}
 
 sub validate_cfg {
     my ($class,%args) = @_;
@@ -58,9 +63,10 @@ sub validate_cfg {
 
 # create new analyzer object
 sub new_analyzer {
-    my ($class,%args) = @_;
+    my ($factory,%args) = @_;
 
-    my $rules = delete $args{rules} or croak("no rules given");
+    my $fargs = $factory->{factory_args};
+    my $rules = $fargs->{rules} or croak("no rules given");
     my @rules01 = ([],[]);
     my @buf;
     for(my $i=0;$i<@$rules;$i++) {
@@ -79,9 +85,9 @@ sub new_analyzer {
 	$buf[$r->{dir}] = '';
     }
 
-    my $ignore_order = delete $args{ignore_order};
-    my $max_unbound  = delete $args{max_unbound} // [];
-    my Net::IMP::ProtocolPinning $self = $class->SUPER::new_analyzer(
+    my $ignore_order = $fargs->{ignore_order};
+    my $max_unbound  = $fargs->{max_unbound} // [];
+    my Net::IMP::ProtocolPinning $self = $factory->SUPER::new_analyzer(
 	%args,
 
 	# -- internal tracking ---

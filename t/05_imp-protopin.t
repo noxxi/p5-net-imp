@@ -189,8 +189,8 @@ for(my $i=0;$i<@tests;$i++) {
 	next;
     }
 
-    my $analyzer = Net::IMP::ProtocolPinning->new_factory(%config)
-	->new_analyzer( cb => [$cb] );
+    my $factory = Net::IMP::ProtocolPinning->new_factory(%config);
+    my $analyzer = $factory->new_analyzer( cb => [$cb] );
 
     for( @{$test{in}} ) {
 	my ($dir,$data) = @$_;

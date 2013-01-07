@@ -11,25 +11,15 @@ use Carp 'croak';
 use Time::HiRes 'gettimeofday';
 use File::Temp 'tempfile';
 
-sub USED_RTYPES { return (
-    IMP_PREPASS,   # nothing gets ever changed or denied
-    IMP_ACCTFIELD, # to account the session log file
+sub INTERFACE { return (
+    [
+	undef,             # all types/protocols are supported
+	[ 
+	    IMP_PREPASS,   # nothing gets ever changed or denied
+	    IMP_ACCTFIELD, # to account the session log file
+	]
+    ]
 )}
-
-sub supported_dtypes { return (
-    # both stream and packet data are supported
-    IMP_DATA_STREAM,
-    IMP_DATA_PACKET,
-)}
-
-sub new_factory {
-    my ($class,%args) = @_;
-    # XXX new_factory might be called in a different root than new_analyzer
-    # XXX adjust test for this case
-    #   my $dir = $args{dir} or croak "no dir given for session logs";
-    #   -d $dir && -w _ or croak "$dir is no writeable dir";
-    return $class->SUPER::new_factory(%args);
-}
 
 sub validate_cfg {
     my ($class,%args) = @_;
@@ -49,24 +39,22 @@ sub validate_cfg {
     return @err;
 }
 
+
 # create new context object
 #  - open log file
 #  - prepare initial and only results (PREPASS in both directions)
 sub new_analyzer {
-    my ($class,%args) = @_;
+    my ($factory,%args) = @_;
 
-    my $fmt  = $args{format} || 'bin';
-    if ( $fmt eq 'pcap' ) {
-	eval "require Net::PcapWriter" or croak
-	    "cannot load Net::PcapWriter needed for format pcap: $@";
-    }
+    my $dir = $factory->{factory_args}{dir};
+    my $fmt = $factory->{factory_args}{format} || 'bin';
 
     my $meta = $args{meta};
     my ($fh,$fname) = tempfile(
 	sprintf("%d-%s.%s-%s.%s-XXXXX", time(),
 	    @{$meta}{qw(caddr cport saddr sport)}),
 	SUFFIX => ".$fmt",
-	DIR => $args{dir}
+	DIR => $dir,
     ) or croak("cannot create tmpfile: $!");
     $DEBUG && debug("new context with filename $fname");
 
@@ -77,33 +65,30 @@ sub new_analyzer {
 	&& Net::PcapWriter->new($fh)
 	->tcp_conn( @{$meta}{qw(caddr cport saddr sport)} );
 
-    my $self = $class->SUPER::new_analyzer(
-	meta => $args{meta},
-	cb => $args{cb},
-	fh => $fh,
-	conn => $conn,
-    );
+    my $analyzer = $factory->SUPER::new_analyzer( %args );
+    $analyzer->{fh} = $fh;
+    $analyzer->{conn} = $conn;
 
     # only results for both directions + acct
-    $self->add_results(
+    $analyzer->add_results(
 	[ IMP_ACCTFIELD,'logfile',$fname ],
 	[ IMP_PREPASS,0,IMP_MAXOFFSET ],
 	[ IMP_PREPASS,1,IMP_MAXOFFSET ]
     );
 
-    return $self;
+    return $analyzer;
 }
 
 sub data {
-    my ($self,$dir,$data) = @_;
-    if ( my $c = $self->{conn} ) {
+    my ($anlyzer,$dir,$data) = @_;
+    if ( my $c = $anlyzer->{conn} ) {
 	# pcap format
 	$c->write($dir,$data,[gettimeofday()]);
     } else {
 	# bin format
-	print {$self->{fh}} pack("NNcN/a*",gettimeofday(),$dir,$data);
+	print {$anlyzer->{fh}} pack("NNcN/a*",gettimeofday(),$dir,$data);
     }
-    $self->run_callback;
+    $anlyzer->run_callback;
 }
 
 1;

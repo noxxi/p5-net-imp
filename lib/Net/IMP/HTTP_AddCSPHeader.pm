@@ -12,8 +12,9 @@ use WWW::CSP;
 use Net::IMP::Debug;
 WWW::CSP::Debug->extern( \$DEBUG,\&debug);
 
-sub USED_RTYPES {
-    return (
+sub INTERFACE { return ([
+    IMP_DATA_STREAM,
+    [
 	# we use PREPASS to make sure, that we get all data to maintain
 	# internal state in cased we cannot do gaps. In simple cases
 	# we use PASS
@@ -22,8 +23,8 @@ sub USED_RTYPES {
 	IMP_REPLACE,  # replace, insert header
 	IMP_DENY,     # on error
 	IMP_TOSENDER, # send fake response for CSP report
-    );
-}
+    ]
+])}
 
 # create CSP backend only once
 sub new_factory {

@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.53';
+our $VERSION = '0.54';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -42,14 +42,14 @@ my @log_levels = qw(
 our @EXPORT_OK = @log_levels;
 our %EXPORT_TAGS = ( log => \@log_levels );
 
-# data types
+# data types/protocols
 # These two are the basic types, more application specific types might
 # be defined somewhere else and be mapped to a number within supported_dtypes.
-# The only important thing is, that streaming data should be <=0, while
+# The only important thing is, that streaming data should be <0, while
 # packetized data (like HTTP header or UDP datagrams) should be > 0
 # If no explicit type is given in sub data, it will assume IMP_DATA_STREAM.
-use constant IMP_DATA_STREAM  => dualvar(0x0,'data.stream');
-use constant IMP_DATA_PACKET  => dualvar(0x1,'data.packet');
+use constant IMP_DATA_STREAM  => dualvar(-1,'net.imp.stream');
+use constant IMP_DATA_PACKET  => dualvar(+1,'net.imp.packet');
 
 
 # the numerical order of the constants describes priority when
@@ -87,65 +87,6 @@ use constant IMP_LOG_ALERT    => dualvar(7,'alert');
 use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 
 
-# no response types in default implementation
-# override this with @list of response types implemented by the class
-sub USED_RTYPES {}
-
-# by default only IMP_DATA_STREAM is supported
-# if USED_RTYPES shows, that no modification on the data will be done
-# it will return all types supported the caller wants
-# override this with @list of data types implemented by the class
-sub supported_dtypes { 
-    my ($class,$dtypes,%args) = @_;
-    for my $rt ( $class->USED_RTYPES(%args)) {
-	# can modify data?
-	return (IMP_DATA_STREAM) if $rt ~~ [ IMP_REPLACE, IMP_TOSENDER ];
-    }
-    return @$dtypes; # nothing will be modified
-}
-
-sub new_factory {
-    my ($class,%args) = @_;
-    # if caller supports only limited set on response types make sure
-    # that class only uses these
-    if ( my $rt = delete $args{rtypes} ) {
-	my %rt = map { $_ => 1 } @$rt;
-	if ( my @miss = grep { !$rt{$_} } $class->USED_RTYPES(%args) ) {
-	    croak("response types @miss need to be supported for use of $class")
-	}
-    }
-    if ( my $dt = delete $args{dtypes} ) {
-	my %supp = map { $_ => $_ } $class->supported_dtypes($dt,%args);
-	my @both = grep { exists $supp{$_} } @$dt;
-	if ( ! @both ) {
-	    croak("no common set of data types. want=@$dt have=".join(' ',keys %supp));
-	}
-	@$dt = @both; # put back result
-    }
-    return bless [ $class, \%args ], 'Net::IMP::Factory';
-}
-
-
-{
-    package Net::IMP::Factory;
-    sub class { return shift->[0] }
-    sub USED_RTYPES {
-	my ($self,%args) = @_;
-	my ($class,$fargs) = @$self;
-	return $class->USED_RTYPES(%$fargs,%args);
-    }
-    sub supported_dtypes {
-	my ($self,$types,%args) = @_;
-	my ($class,$fargs) = @$self;
-	return $class->supported_dtypes($types,%$fargs,%args);
-    }
-    sub new_analyzer {
-	my ($self,%args) = @_;
-	my ($class,$fargs) = @$self;
-	return $class->new_analyzer(%$fargs,%args);
-    }
-}
-
 1;
 
 __END__
@@ -156,65 +97,91 @@ Net::IMP - Inspection and Modification Protocol
 
 =head1 SYNOPSIS
 
-    package mySessionLog;
+    ######################################################################
+    # implementation of plugin 
+    ######################################################################
+
+    package myIMP_Plugin;
     use base 'Net::IMP::Base';
     use Net::IMP;
 
-    # creates factory object
-    sub new_factory {
-	my ($class,%args) = @_;
-	... create factory object ...
-	... $factory->new_analyzer calls later $class->new_analyzer ...
+    # plugin global methods
+    # -------------------------------------------------------------------
+
+    sub cfg2str { ... }       # create $string from %config
+    sub str2cfg { ... }       # create %config from $string
+    sub validate_cfg { ... }  # validate %config
+
+    sub new_factory {         # creates factory object
+	my ($class,%factory_args) = @_;
+	...
+	return $factory;
     }
 
-    # creates new analyzer object, gets %args from factory
-    sub new_analyzer {
-	my ($class,%args) = @_;
-	... handle private %args ...
-	my $self = $class->SUPER::new_analyzer( %args );
-	# prepass everything forever in both directions
-	$self->add_results(
+    # factory specific methods and calls
+    # -------------------------------------------------------------------
+
+    # used in default implementation of method interface
+    sub INTERFACE {
+	[ undef, [ IMP_PREPASS, IMP_ACCTFIELD ]]
+    };
+
+    sub new_analyzer {        # creates analyzer from factory
+	my ($factory,%analyzer_args) = @_;
+	my $analyzer = $class->SUPER::new_analyzer( %analyzer_args );
+	# maybe prepass everything forever in both directions
+	$analyzer->add_results(
 	    [ IMP_PREPASS, 0, IMP_MAXOFFSET ],  # for dir client->server
 	    [ IMP_PREPASS, 1, IMP_MAXOFFSET ];  # for dir server->client
 	);
-	return $self;
+	return $analyzer;
     }
 
-    # which return values we might return
-    sub USED_RTYPES { return (
-	IMP_PREPASS,   # everything will be forwarded unchanged, but logged
-	IMP_ACCTFIELD, # account the name of logfile
-    )}
-
-    # which data types we support
-    sub supported_dtypes [
-	my ($class,$dtypes) = @_;
-	# we support all types the caller supports
-	return @$dtypes;
-    }
+    # analyzer specific methods
+    # -------------------------------------------------------------------
 
     # new data for analysis, $offset should only be set if there are gaps
     # (e.g. when we PASSed data with offset in the future)
     sub data {
-	my ($self,$dir,$data,$offset,$datatype) = @_;
-	... log data ...
+	my ($analyzer,$dir,$data,$offset,$datatype) = @_;
+	... 
     }
 
+    ######################################################################
+    # use of plugin 
+    ######################################################################
     package main;
-    if (my @err = mySessionLog->validate_cfg(%config)) {
+
+    # check configuration, maybe use str2cfg to get config from string before
+    if (my @err = myIMP_Plugin->validate_cfg(%config)) {
 	die "@err"
     }
-    my $factory = mySessionLog->new_factory(%config);
-    # calls mySessionLog->new_analyzer
-    my $analyzer = $factory->new_analyzer(...);
-    $analyzer->set_callback(\&imp_cb);
 
+    # create single factory object for each configuration 
+    my $factory = myIMP_Plugin->new_factory(%config);
+
+    # enforce the interface the caller will use, e.g. the input protocol/types
+    # and the supported output return types
+    $factory->interface([ 
+	IMP_DATA_STREAM, 
+	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
+    ]) or die;
+
+    # create analyzer object from factory for each new analysis (e.g. for
+    # each connection)
+    my $analyzer = $factory->new_analyzer(...);
+
+    # set callback, which gets called on each result
+    $analyzer->set_callback(\&imp_cb,$cb_arg);
+
+    # feed analyzer with data
     $analyzer->data(0,'data from dir 0',0,IMP_DATA_STREAM);
     .... will call imp_cb as soon as results are there ...
     $analyzer->data(0,'',0,IMP_DATA_STREAM); # eof from dir 0
 
     # callback for results
     sub imp_cb {
+	my $cb_arg = shift;
 	for my $rv (@_) {
 	    my $rtype = shift(@$rv);
 	    if ( $rtype == IMP_PASS ) ...
@@ -255,7 +222,7 @@ offset got used in the result and thus data up to this offset can be passed.
 =item *
 
 The results get usually propagated with a callback set with C<set_callback>.
-If no callback is set, results can be polled with the C<poll_results> method.
+If no callback is set, results must be polled with the C<poll_results> method.
 
 =back
 
@@ -265,7 +232,13 @@ If no callback is set, results can be polled with the C<poll_results> method.
 
 =item Factory
 
-The factory object is used to create analyzers within a specific context.
+The factory object is used to create analyzers with common properties.
+
+=item Analyzer
+
+The analyzer is the object which does the analysis of the data within a
+specific context.
+It will be created by the factory for a new context.
 
 =item Context
 
@@ -273,41 +246,91 @@ The context is the environment where the analyzer executes.
 E.g. when analyzing TCP connections, a new context is created for each TCP
 connection.
 
-=item Analyzer
+=item Interface
 
-The analyzer is the object which does the analysis of the data within a
-specific context.
-It will be created by the factory for a given context.
+The interface consists of the data protocols/types (e.g. stream, packet,
+http...) supported by the analyzer and the return types (IMP_PASS, IMP_PREPASS,
+IMP_LOG, ...).
 
 =back
 
 =head2 Methods
 
-The following API is defined.
+The following API needs to be implemented by all IMP plugins.
+C<$class>, C<$factory> and C<$analyzer> in the following might be (objects of)
+different classes, but don't need to.
+The C<Net::IMP::Base> implementation uses the same class for plugin, factory and
+analyzer.
 
 =over 4
 
+=item $class->str2cfg($string) => %config
+
+This creates a config hash from a given string.
+No verification of the config is done.
+
+=item $class->cfg2str(%config) => $string
+
+This creates a string from a config hash.
+No verification of the config is done.
+
+=item $class->validate_cfg(%config) -> @error
+
+This validates the config and returns a list of errors.
+Config is valid, if no errors are returned.
+
 =item $class->new_factory(%args) => $factory
 
-This creates a new factory object which is later used to create the context.
-In the default implementation, an argument 
-C<< rtypes => [ IMP_PASS, IMP_PREPASS... ] >>
-can be given where the caller can specify the response types it supports.
-This will be checked against the list returned by 
-C<< $class->USED_RTYPES(%args) >> and if the class uses response types not
-implemented by the caller it will croak.
+This creates a new factory object which is later used to create the analyzer.
+C<%args> are used to describe the properties common for all analyzers created by
+the same factory.
 
-Also an argument C<< dtypes => [ IMP_DATA_STREAM, IMP_DATA_PACKET...] >> can be
-given to specify the list of data types supported by the caller. 
-All dtypes not supported by the implementation will be removed from the given
-list, maintaining the order of entries in the list. The supported dtypes are
-determined using C<< $class->supported_dtypes(%args) >>.
+=item $factory->interface(@interface_in) => @interface_out
 
-=item $factory->new_analyzer(%args) => $self|undef
+This gets or sets the interfaces supported by the factory.
+Each interface consists of C<< [ $input_type, \@output_types ] >>, where
+
+=over 8
+
+=item $input_type
+
+is either a single input data type (like IMP_DATA_STREAM, IMP_DATA_PACKET) or a
+protocol type (like IMP_DATA_HTTP) which includes multiple data types.
+
+=item @output_types
+
+is a list of the return types, which are used by the interface, e.g. IMP_PASS,
+IMP_LOG,...
+
+=back
+
+The method returns all or a subset of the interfaces supported by the factory.
+
+=over 8
+
+=item * 
+
+if called without arguments it will return all the interfaces supported by the
+factory. Only in this case an interface description with no data type/protocol
+might be returned, which means, that all data types/protocols are supported.
+
+=item *
+
+if called with multiple interfaces, it will return the subset of the
+given interfaces supported by the factory.
+
+=item * 
+
+if called with a single interface, it will force the factory to use the
+given interface for future analyzers. If the factory does not support this
+interface, it will return C<()>.
+
+=back
+
+
+=item $factory->new_analyzer(%args) => $analyzer|undef
 
 Creates a new analyzer object.
-C<%args> from this call will be merged with C<%args> from the C<new_factory>
-call and will be used to create the context for the analysis.
 The details for C<%args> depend on the analyzed protocol and the requirements
 of the analyzer, but usually these are things like source and destination ip
 and port, URL, mime type etc.
@@ -319,7 +342,7 @@ The factory might decide based on the given context information, that no
 analysis is needed.
 In this case it will return C<undef>, otherwise the new analyzer object.
 
-=item $self->set_callback($code,@args)
+=item $analyzer->set_callback($code,@args)
 
 Sets or changes the callback of the analyzer object.
 If results are outstanding, they might be delivered to this callback before
@@ -334,7 +357,7 @@ If $code is undef, an existing callback will be removed.
 
 If no callback is given, the results need to be polled with C<poll_results>.
 
-=item $self->data($dir,$data,$offset,[$type])
+=item $analyzer->data($dir,$data,$offset,$type)
 
 Forwards new data to the analyzer.
 C<$dir> is the direction, e.g. 0 from client and 1 from server.
@@ -348,17 +371,16 @@ position value with the original position in the data stream.
 In any other case it should be set to 0.
 
 C<$type> is the type of the data.
-If not given, IMP_DATA_STREAM will be assumed.
 There are two global data type definitions:
 
 =over 4
 
-=item IMP_DATA_STREAM (0)
+=item IMP_DATA_STREAM (-1)
 
 This is for generic streaming data, e.g. chunks from these datatypes can be
 concatinated and analyzed together, parts can be replaced etc.
 
-=item IMP_DATA_PACKET (1)
+=item IMP_DATA_PACKET (+1)
 
 This is for generic packetized data, where each chunk (e.g. call to C<data>)
 contains a single packet, which should be analyzed as a separate entity.
@@ -375,52 +397,16 @@ and will probably cause an exception.
 =back
 
 All other data types are considered either subtypes of IMP_DATA_PACKET
-(value >0) or of IMP_DATA_STREAM (value<=0) and share their restrictions.
+(value >0) or of IMP_DATA_STREAM (value<0) and share their restrictions.
 Also only streaming data of the same type can be concatinated and
 analyzed together.
 
 Results will be delivered through the callback or via C<poll_results>.
 
-=item $self->poll_results => @results
+=item $analyzer->poll_results => @results
 
 Returns outstanding results.
 If a callback is attached, no results will be delivered this way.
-
-=item ($factory|class)->supported_dtypes($types,%args)
-
-This method is used withing C<new_factory> to get the list of data types
-supported by the application. It can also be used later to restrict the types
-used by the factory to the given types and to associate the type string
-identifier with the typ number inside the factory based on the values given by
-the caller.
-
-C<%args> are the arguments from C<new_analyzer>.
-They are only given when called with C<class>.
-
-C<$types> is a \@list of available types. Each type is a dualvar (see
-C<dualvar> in L<Scalar::Util>) consisting of a string identifier and a number.
-Currently defined are:
-
-=over 4
-
-=item IMP_DATA_STREAM - (0,'stream')
-
-=item IMP_DATA_PACKET - (1,'packet')
-
-=back
-
-All other packet types must have a number>1, while all other streaming types
-must have number<0.
-
-This method returns the @list of supported types (dualvars again).
-
-=item ($factory|class)->USED_RTYPES(%args)
-
-This function returns the list of the IMP return codes, which are used by the
-IMP module. 
-C<%args> are the arguments from C<new_factory>, in case the list of return
-codes depends on the configuration.
-They are only given when called with C<class>.
 
 =item Net::IMP->set_debug
 

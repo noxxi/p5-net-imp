@@ -2,58 +2,32 @@ use strict;
 use warnings;
 
 package Net::IMP::Base;
-use base 'Net::IMP';
+use Net::IMP;
 use Carp 'croak';
 use fields (
-    'meta', # hash with meta data given in new_analyzer
-    'cb',   # callback, set from new_analyzer or with set_callback
-    'rv'    # collected results for polling or callback, set from add_results
+    'factory_args', # arguments given to new_factory
+    'if_adaptor',   # interface adaptor class/sub for new analyzer
+    'meta',         # hash with meta data given to new_analyzer
+    'analyzer_cb',  # callback, set from new_analyzer or with set_callback
+    'analyzer_rv',  # collected results for polling or callback, set from add_results
 );
 
-sub new_analyzer {
+
+############################################################################
+# API plugin methods
+############################################################################
+
+# creates new factory
+sub new_factory {
     my ($class,%args) = @_;
-    my Net::IMP::Base $self = fields::new($class);
-    %$self = %args;
-    $self->{rv} ||= [];
-    return $self;
+    my Net::IMP::Base $factory = fields::new($class);
+    $factory->{factory_args} = \%args;
+    return $factory;
 }
-
-sub add_results {
-    my Net::IMP::Base $self = shift;
-    push @{$self->{rv}},@_;
-}
-
-sub set_callback {
-    my Net::IMP::Base $self = shift;
-    my ($sub,@args) = @_;
-    $self->{cb} = $sub ? [ $sub,@args ]:undef;
-    $self->run_callback;
-}
-
-sub poll_results {
-    my Net::IMP::Base $self = shift;
-    my $rv = $self->{rv};
-    $self->{rv} = [];
-    return @$rv;
-}
-
-
-sub run_callback {
-    my Net::IMP::Base $self = shift;
-    my $rv = $self->{rv}; # get collected results
-    push @$rv,@_ if @_;   # add more results
-    if ( my $cb = $self->{cb} ) {
-	my ($sub,@args) = @$cb;
-	$self->{rv} = [];                # reset self.rv
-	$sub->(@args,@$rv); # and call back
-    }
-}
-
 
 # make string from hash config, using URL encoding to escape special chars
 sub cfg2str {
-    my Net::IMP::Base $self = shift;
-    my %cfg = @_;
+    my (undef,%cfg) = @_;
     return join('&', map {
 	my $v = $cfg{$_};
 	# only encode really necessary stuff
@@ -69,8 +43,7 @@ sub cfg2str {
 
 # make has config from string created by cfg2str
 sub str2cfg {
-    my Net::IMP::Base $self = shift;
-    my $str = shift;
+    my (undef,$str) = @_;
     my %cfg;
     for my $kv (split('&',$str)) {
 	my ($k,$v) = $kv =~m{^([^=]+)(?:=(.*))?};
@@ -82,37 +55,144 @@ sub str2cfg {
     return %cfg;
 }
 
+# validate config, return list of errors
 sub validate_cfg {
     my (undef,%cfg) = @_;
     return %cfg ? "unexpected config keys ".join(', ',keys %cfg) : ();
 }
+
+############################################################################
+# API factory methods
+############################################################################
+
+# create new analyzer
+sub new_analyzer {
+    my Net::IMP::Base $factory = shift;
+    my %args = @_;
+    my $cb = delete $args{cb};
+    my Net::IMP::Base $analyzer = fields::new(ref($factory));
+    %$analyzer = ( 
+	%$factory,          # common properties of all analyzers
+	%args,              # properties of this analyzer
+	analyzer_rv => [],  # reset queued return values
+	analyzer_cb => $cb, # callback given?
+    );
+    if ( my $adaptor = $analyzer->{if_adaptor} ) {
+	undef $analyzer->{if_adaptor};
+	$analyzer = $adaptor->new($analyzer);
+    }
+    return $analyzer;
+}
+
+# set/get interface to use
+sub interface {
+    my Net::IMP::Base $factory = shift;
+    my @local = $factory->INTERFACE;
+
+    # return all supported interfaces if none are given
+    return @local if ! @_; 
+
+    # find matching interfaces
+    my @match;
+    for my $if (@_) {
+	my ($in,$out) = @$if;
+	for my $lif (@local) {
+	    my ($lin,$lout,$adaptor) = @$lif;
+	    next if $lin and $lin != $in; # no match data type/proto
+
+	    # any local return types from not in out?
+	    my %lout = map { $_ => 1 } @$lout;
+	    delete @lout{@$out};
+	    next if %lout; # caller does not support all return types
+
+	    if ( $adaptor ) {
+		# make sure adaptor class exists
+		eval "require $adaptor" or next
+	    }
+
+	    # matches
+	    push @match, [ $if,$adaptor ];
+	    last;
+	}
+    }
+
+    $factory->{if_adaptor} = $match[0][1] if @match == 1;
+    return map { $_->[0] } @match;
+}
+sub INTERFACE { die "needs to be implemented" }
+
+############################################################################
+# API analyzer methods
+############################################################################
+
+# set callback
+sub set_callback {
+    my Net::IMP::Base $analyzer = shift;
+    my ($sub,@args) = @_;
+    $analyzer->{analyzer_cb} = $sub ? [ $sub,@args ]:undef;
+    $analyzer->run_callback;
+}
+
+# return queued results
+sub poll_results {
+    my Net::IMP::Base $analyzer = shift;
+    my $rv = $analyzer->{analyzer_rv};
+    $analyzer->{analyzer_rv} = [];
+    return @$rv;
+}
+
+sub data { die "needs to be implemented" }
+    
+
+############################################################################
+# internal analyzer methods
+############################################################################
+
+sub add_results {
+    my Net::IMP::Base $analyzer = shift;
+    push @{$analyzer->{analyzer_rv}},@_;
+}
+
+sub run_callback {
+    my Net::IMP::Base $analyzer = shift;
+    my $rv = $analyzer->{analyzer_rv}; # get collected results
+    push @$rv,@_ if @_;   # add more results
+    if ( my $cb = $analyzer->{analyzer_cb} ) {
+	my ($sub,@args) = @$cb;
+	$analyzer->{analyzer_rv} = []; # reset
+	$sub->(@args,@$rv); # and call back
+    }
+}
+
 
 1;
 __END__
 
 =head1 NAME
 
-Net::IMP::Base - base class for Net::IMP analyzers
+Net::IMP::Base - base class to make writing of Net::IMP analyzers easier
 
 =head1 SYNOPSIS
 
-    package mySessionLog;
+    package myPlugin;
     use base 'Net::IMP::Base';
     use fields qw(... local fields ...);
 
-    sub new_analyzer {
-	my ($class,%args) = @_;
-	... handle local %args ...
-	my $self = $class->SUPER::new_analyzer(%args);
-	...
-	return $self
-    }
+    # plugin methods
+    # sub new_factory ...  - has default implementation
+    # sub cfg2str ...      - has default implementation
+    # sub str2cfg ...      - has default implementation
+    sub validate_cfg ...   - needs to be implemented
 
-    sub data {
-	my ($self,$dir,$data,$offset) = @_;
-	... analyse data ...
-	... propagate results with $self->run_callback ...
-    }
+    # factory methods
+    sub INTERFACE ...      - needs to be implemented
+    # sub interface ...    - has default implementation using sub INTERFACE
+    sub new_analyzer ...   - needs to be implemented
+
+    # analyzer methods
+    sub data ...           - needs to be implemented
+    # sub poll_results ... - has default implementation
+    # sub set_callback ... - has default implementation
 
 =head1 DESCRIPTION
 
@@ -120,21 +200,82 @@ C<Net::IMP::Base> is a class to make it easier to write IMP analyzers.
 It can not be used on its own but should be used as a base class in new
 analyzers.
 
-It provides the following interface:
+It provides the following interface for the global plugin API as required for
+all L<Net::IMP> plugins.
 
 =over 4
 
-=item $class->new_analyzer(%args)
+=item cfg2str|str2cfg
 
-Called from C<<$factory->new_analyzer(%fargs)>> for creating the analyzer for a
-new pair of data streams.
-The arguments will be a combination of the C<%fargs> given when creating
-the factory with C<new_factory> and C<%args> given when using the factory
-with C<new_analyzer>.
+These functions convert a C<%config> to or from a C<$string>.
+In this implementation the <$string> is a single line, encoded similar to the
+query_string in HTTP URLs.
+
+There is no need to re-implement this function unless you want to serialize the
+config into a different format.
+
+=item $class->validate_cfg(%config)
+
+This function verifies the config and thus should be reimplemented in each
+sub-package.
+
+The implementation in this package just complains, if there are any data left
+in C<%config> and thus should be called with any config data not handled by
+your own validation function.
+
+=item $class->new_factory(%args)
+
+This will create a new factory class. 
+C<%args> will be saved into C<$factory->{factory_args}> and later used when
+creating the analyzer.
+There is no need to re-implement this method.
+
+=back
+
+The following methods are implemented on factory objects as required by
+L<Net::IMP>:
+
+=over 4
+
+=item $factory->interface(@in) => @out
+
+This method provides an implementation of the C<interface> API function. 
+This implementation requires the implementation of a function C<INTERFACE> like
+this:
+
+  sub INTERFACE { return (
+    [ 
+      # require HTTP data types
+      IMP_DATA_HTTP,          # input data types/protocols
+      [ IMP_PASS, IMP_LOG ]   # output return types
+    ],[
+      # we can handle stream data too if we use a suitable adaptor
+      IMP_DATA_STREAM, 
+      [ IMP_PASS, IMP_LOG ],
+      'Net::IMP::Adaptor::STREAM2HTTP',
+    ]
+  )}
+
+There is no need to re-implement method C<interface>, but C<INTERFACE>
+should be implemented. 
+If your plugin can handle any data types you can set the type to C<undef>
+in the interface description.
+
+=item $factory->new_analyzer(%args)
+
+This method is called from C<<$factory->new_analyzer(%fargs)>> for creating the
+analyzer for a new pair of data streams.
+
+This implementation will create a new analyzer object based on the factory
+object, e.g. it will use %args for the fields in the analyzer but also provide
+access to the args given when creating the factory within field C<factory_args>.
+
+If the interface required an adaptor it will wrap the newly created analyzer
+into the adaptor with C<< $analyzer = $adaptor_class->new($analyzer) >>.
 
 Derived classes should handle (and remove) all local settings from C<%args>
 and then call C<<$class->SUPER::new_analyzer(%rest_args)>> to construct
-C<$self>.
+C<$analyzer>.
 
 This method might generate results already.
 This might be the case, if it needs to analyze only one direction (e.g. issue
@@ -149,14 +290,14 @@ will cause an error:
 
 =item meta
 
-This will be stored in C<$self->{meta}>.
+This will be stored in C<$analyzer->{meta}>.
 Usually used for storing context specific information from the application.
 Some modules (like L<Net::IMP::SessionLog>) depend on C<meta> providing a hash
 reference with specific entries.
 
 =item cb
 
-This is the callback and will be stored in C<$self->{cb}>.
+This is the callback and will be stored in C<$analyzer->{analyzer_cb}>.
 Callback should be specified as an array reference with C<[$sub,@args]>.
 See C<set_callback> method for more information.
 
@@ -165,45 +306,16 @@ the callback immediatly, even if C<new_analyzer> did not return yet.
 If you don't want this, use C<set_callback> after creating the analyzer
 instead.
 
-=item rv
-
-A list of initial results can be given.
-This is usually not a good idea.
-
 =back
 
-=item $self->data($dir,$data,$offset)
+The following methods are implemented on analyzer objects as required by
+L<Net::IMP>:
 
-Will be called from the user of the analyzer whenever new data (or eof) are
-available.
-C<$dir> is the direction (0|1), C<$data> are the data (C<''> to mark eof) and
-C<$offset> is the position in the input stream where C<$data> start.
+=over 4 
 
-C<$offset> must only be given from the caller if there were gaps in the input
-stream (which are allowed for IMP_PASS results with an offset in the future).
+=item $analyzer->set_callback($sub,@args)
 
-This method will contain the analyzer specific processing.
-Results from the analyzer will be propagated to the caller using
-C<run_callback>.
-
-=item $self->run_callback(@results)
-
-This method should be called from the analyzer object from within the C<data>
-method to propagate results using the callback provided by the user of the
-analyzer.
-It will propagate all spooled results and new results given to this method.
-
-Each result is an array reference, see L<Net::IMP> for details.
-
-=item $self->add_results(@results)
-
-This method adds new results to the list of collected results, but will not
-call any callbacks.
-It will usually be used in the analyzer from within the C<data> method.
-
-=item $self->set_callback($sub,@args)
-
-This will set the callback (C<$self->{cb}>).
+This will set the callback (C<$analyzer->{analyzer_cb}>).
 This method will be called from the user of the analyzer.
 The callback will be used within C<run_callback> and called with
 C<< $sub->(@args,@results) >>.
@@ -212,41 +324,41 @@ If there are already collected results, the callback will be executed
 immediately.
 If you don't want this, remove these results upfront with C<poll_results>.
 
-=item $self->poll_results
+=item $analyzer->poll_results
 
 This will return the current C<@results> and remove them from collected
 results.
 It will only be used from the caller of the analyzer if no callback is set.
 
+=item $analyzer->data($dir,$data,$offset,$dtype)
+
+This method should be defined for all analyzers.
+The implementation in this package will just croak.
+
 =back
 
-Also a method is defined to check configuration:
+Also the following methods are defined for analyzers and can be used inside
+your own analyzer.
 
 =over 4
 
-=item $class->validate_cfg(%config)
+=item $analyzer->run_callback(@results)
 
-This will return a list of errors with the config, e.g. it will return an
-empty list if no errors where detected.
+This method should be called from the analyzer object from within the C<data>
+method to propagate results using the callback provided by the user of the
+analyzer.
+It will propagate all spooled results and new results given to this method.
 
-=back
+Each result is an array reference, see L<Net::IMP> for details.
 
-Additionally the following methods are defined to aid in using configuration
-from a single string:
+=item $analyzer->add_results(@results)
 
-=over 4
-
-=item $class->cfg2str(%config) -> $string
-
-Creates a string from a (configuration) hash.
-The output is similar to encoded query parameters in URLs.
-
-=item $class->str2cfg($string) -> %config
-
-Parses a configuration string generated by C<cfg2str> and restores the
-configuration hash.
+This method adds new results to the list of collected results, but will not
+call any callbacks.
+It will usually be used in the analyzer from within the C<data> method.
 
 =back
+
 
 =head1 AUTHOR
 

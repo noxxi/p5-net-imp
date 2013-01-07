@@ -1,3 +1,11 @@
+0.54 2013/01/07
+- stream type now -1
+- put factory into Net::IMP::Base, arguments for factory are not given directly
+  to analyzer anymore but need to be accessed using factory_args
+- better documentation, clearer distinction what are global, factory or analyzer
+  methods
+- support interfaces with dtype/rtype instead of global dtypes/rtypes.
+  decision which interface to use inside factory
 0.53 2012/12/28
 - allow other streaming data types, with number<0.
   support these types inside Cascade

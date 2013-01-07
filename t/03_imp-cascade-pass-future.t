@@ -12,8 +12,8 @@ use Test::More tests => 1;
 $DEBUG=0; # enable for extensiv debugging
 
 my $analyzer = Net::IMP::Cascade->new_factory( parts => [
-    RemoveHead->new_factory( -size => 10 ),
-    RemoveHead->new_factory( -size => 5 ),
+    RemoveHead->new_factory( size => 10 ),
+    RemoveHead->new_factory( size => 5 ),
 ])->new_analyzer;
 
 my @rv;
@@ -46,9 +46,9 @@ use fields qw(size pos);
 use Net::IMP;
 
 sub new_analyzer {
-    my ($class,%args) = @_;
-    my $size = delete $args{-size};
-    my $self = $class->SUPER::new_analyzer(%args);
+    my ($factory,%args) = @_;
+    my $size = $factory->{factory_args}{size};
+    my $self = $factory->SUPER::new_analyzer(%args);
     $self->{size} = $size;
     $self->{pos} = 0;
     return $self;

@@ -64,9 +64,9 @@ use fields qw(window pos);
 use Net::IMP;
 
 sub new_analyzer {
-    my ($class,%args) = @_;
-    my $window = delete $args{window};
-    my $self = $class->SUPER::new_analyzer(%args);
+    my ($factory,%args) = @_;
+    my $window = $factory->{factory_args}{window};
+    my $self = $factory->SUPER::new_analyzer(%args);
     $self->{window} = $window;
     $self->{pos} = 0;
     return $self;
