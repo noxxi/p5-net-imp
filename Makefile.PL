@@ -6,4 +6,10 @@ WriteMakefile(
     LICENSE => 'perl',
     PREREQ_PM => {
     },
+    META_MERGE => {
+	resources => {
+	    repository => 'https://github.com/noxxi/p5-net-imp',
+	},
+    },
 );
+
