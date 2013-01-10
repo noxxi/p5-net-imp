@@ -71,7 +71,7 @@ for my $l (@listen) {
 	eval "require $mod" or die "cannot load $mod args=$args: $@";
 	my %args = $mod->str2cfg($args//'');
 	$imp_factory = $mod->new_factory(%args);
-	$imp_factory && $imp_factory->interface([
+	$imp_factory && $imp_factory->set_interface([
 	    IMP_DATA_STREAM,
 	    [
 		IMP_PASS,

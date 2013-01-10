@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.54';
+our $VERSION = '0.55';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -39,7 +39,7 @@ my @log_levels = qw(
     IMP_LOG_ALERT
     IMP_LOG_EMERG
 );
-our @EXPORT_OK = @log_levels;
+our @EXPORT_OK = (@log_levels, 'IMP_DATA');
 our %EXPORT_TAGS = ( log => \@log_levels );
 
 # data types/protocols
@@ -48,8 +48,8 @@ our %EXPORT_TAGS = ( log => \@log_levels );
 # The only important thing is, that streaming data should be <0, while
 # packetized data (like HTTP header or UDP datagrams) should be > 0
 # If no explicit type is given in sub data, it will assume IMP_DATA_STREAM.
-use constant IMP_DATA_STREAM  => dualvar(-1,'net.imp.stream');
-use constant IMP_DATA_PACKET  => dualvar(+1,'net.imp.packet');
+use constant IMP_DATA_STREAM  => dualvar(-1,'imp.data.stream');
+use constant IMP_DATA_PACKET  => dualvar(+1,'imp.data.packet');
 
 
 # the numerical order of the constants describes priority when
@@ -85,6 +85,56 @@ use constant IMP_LOG_ERR      => dualvar(5,'error');
 use constant IMP_LOG_CRIT     => dualvar(6,'critical');
 use constant IMP_LOG_ALERT    => dualvar(7,'alert');
 use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
+
+
+# helper function to define new IMP_DATA_* types for protocols
+{
+    my (%atoi,%itoa);
+    sub IMP_DATA {
+	my ($basename,@def) = @_;
+	my $basenum;
+	if ( $basename =~s{\[(?:(\w+)\+)?(\d+)\]$}{} ) {
+	    (my $base,$basenum) = ($1,$2);
+	    if ( $base ) {
+		my $offset = $atoi{$base} 
+		    or croak("cannot find base type $base");
+		$basenum += $offset;
+	    }
+	} else {	
+	    $basenum = getservbyname($basename,'tcp' )
+		|| getservbyname($basename,'udp' )
+		or croak("cannot determine id for $basename");
+	    $basenum = $basenum << 16;
+	}
+
+	my @const;
+
+	my $pkg = caller;
+	unshift(@def,'',0);
+	while (@def) {
+	    my $name = shift(@def);
+	    my $diff = shift(@def);
+	    my $lname = $name ne '' ? "$basename.$name" : $basename;
+	    croak("$lname already defined") if exists $atoi{$lname};
+	    my $lnum  = $diff>=0 ? $basenum + $diff : -$basenum+$diff;
+	    if ( my $s = $itoa{$lnum} || $itoa{-$lnum} ) {
+		croak("id $lnum alreday used for $s");
+	    }
+	    $atoi{$lname} = $lnum;
+	    $itoa{$lnum} = $lname;
+
+	    my $string = "imp.data.$lname";
+	    ( my $const = uc($string) )=~s{\.}{_}g;
+	    push @const,$const;
+
+	    no strict 'refs';
+	    my $var = dualvar($lnum,$string);
+	    *{ "${pkg}::$const" } = sub () { $var };
+	}
+
+	return @const;
+    }
+}
 
 
 1;
@@ -162,7 +212,7 @@ Net::IMP - Inspection and Modification Protocol
 
     # enforce the interface the caller will use, e.g. the input protocol/types
     # and the supported output return types
-    $factory->interface([ 
+    $factory = $factory->set_interface([ 
 	IMP_DATA_STREAM, 
 	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
     ]) or die;
@@ -188,6 +238,18 @@ Net::IMP - Inspection and Modification Protocol
 	    ...
 	}
     }
+
+    ######################################################################
+    # definition of new data types suites
+    ######################################################################
+    package Net::IMP::HTTP;
+    use Net::IMP 'IMP_DATA';
+    use Exporter 'import';
+    our @EXPORT = IMP_DATA('http',
+	'header' => +1,   # packet type
+	'body'   => -2,   # streaming type
+	...
+    );
 
 =head1 DESCRIPTION
 
@@ -254,168 +316,7 @@ IMP_LOG, ...).
 
 =back
 
-=head2 Methods
-
-The following API needs to be implemented by all IMP plugins.
-C<$class>, C<$factory> and C<$analyzer> in the following might be (objects of)
-different classes, but don't need to.
-The C<Net::IMP::Base> implementation uses the same class for plugin, factory and
-analyzer.
-
-=over 4
-
-=item $class->str2cfg($string) => %config
-
-This creates a config hash from a given string.
-No verification of the config is done.
-
-=item $class->cfg2str(%config) => $string
-
-This creates a string from a config hash.
-No verification of the config is done.
-
-=item $class->validate_cfg(%config) -> @error
-
-This validates the config and returns a list of errors.
-Config is valid, if no errors are returned.
-
-=item $class->new_factory(%args) => $factory
-
-This creates a new factory object which is later used to create the analyzer.
-C<%args> are used to describe the properties common for all analyzers created by
-the same factory.
-
-=item $factory->interface(@interface_in) => @interface_out
-
-This gets or sets the interfaces supported by the factory.
-Each interface consists of C<< [ $input_type, \@output_types ] >>, where
-
-=over 8
-
-=item $input_type
-
-is either a single input data type (like IMP_DATA_STREAM, IMP_DATA_PACKET) or a
-protocol type (like IMP_DATA_HTTP) which includes multiple data types.
-
-=item @output_types
-
-is a list of the return types, which are used by the interface, e.g. IMP_PASS,
-IMP_LOG,...
-
-=back
-
-The method returns all or a subset of the interfaces supported by the factory.
-
-=over 8
-
-=item * 
-
-if called without arguments it will return all the interfaces supported by the
-factory. Only in this case an interface description with no data type/protocol
-might be returned, which means, that all data types/protocols are supported.
-
-=item *
-
-if called with multiple interfaces, it will return the subset of the
-given interfaces supported by the factory.
-
-=item * 
-
-if called with a single interface, it will force the factory to use the
-given interface for future analyzers. If the factory does not support this
-interface, it will return C<()>.
-
-=back
-
-
-=item $factory->new_analyzer(%args) => $analyzer|undef
-
-Creates a new analyzer object.
-The details for C<%args> depend on the analyzed protocol and the requirements
-of the analyzer, but usually these are things like source and destination ip
-and port, URL, mime type etc.
-
-With a key of C<cb> the callback can already be set here as
-C<<[$code,@args]>> instead of later with C<set_callback>.
-
-The factory might decide based on the given context information, that no
-analysis is needed.
-In this case it will return C<undef>, otherwise the new analyzer object.
-
-=item $analyzer->set_callback($code,@args)
-
-Sets or changes the callback of the analyzer object.
-If results are outstanding, they might be delivered to this callback before
-the method returns.
-
-C<$code> is a coderef while C<@args> are additional user specified arguments
-which should be used in the callback (typically object reference or similar).
-The callback is called with C<< $code->(@args,@results) >> whenever new results
-are available.
-
-If $code is undef, an existing callback will be removed.
-
-If no callback is given, the results need to be polled with C<poll_results>.
-
-=item $analyzer->data($dir,$data,$offset,$type)
-
-Forwards new data to the analyzer.
-C<$dir> is the direction, e.g. 0 from client and 1 from server.
-C<$data> are the data.
-C<$data> of '' means end of data.
-
-C<$offset> is the current position (octet) in the data stream.
-It must be set to a value greater than 0 after data got omitted as a result of
-PASS or PASS_PATTERN, so that the analyzer can resynchronize the internal
-position value with the original position in the data stream.
-In any other case it should be set to 0.
-
-C<$type> is the type of the data.
-There are two global data type definitions:
-
-=over 4
-
-=item IMP_DATA_STREAM (-1)
-
-This is for generic streaming data, e.g. chunks from these datatypes can be
-concatinated and analyzed together, parts can be replaced etc.
-
-=item IMP_DATA_PACKET (+1)
-
-This is for generic packetized data, where each chunk (e.g. call to C<data>)
-contains a single packet, which should be analyzed as a separate entity.
-This means no concatinating with previous or future chunks and no replacing of
-only parts of the packet.
-
-Also, any offsets given in calls to C<data> or in the results should be at
-packet boundary (or IMP_MAX_OFFSET), at least for data modifications.
-It will ignore (pre)pass which are not a packet boundary in the hope, that more
-(pre)pass will follow.
-A (pre)pass for some parts of a packet followed by a replacement is not allowed
-and will probably cause an exception.
-
-=back
-
-All other data types are considered either subtypes of IMP_DATA_PACKET
-(value >0) or of IMP_DATA_STREAM (value<0) and share their restrictions.
-Also only streaming data of the same type can be concatinated and
-analyzed together.
-
-Results will be delivered through the callback or via C<poll_results>.
-
-=item $analyzer->poll_results => @results
-
-Returns outstanding results.
-If a callback is attached, no results will be delivered this way.
-
-=item Net::IMP->set_debug
-
-This is just a convinient way to call C<< Net::IMP::Debug->set_debug >>.
-See L<Net::IMP::Debug> for more information.
-
-=back
-
-=head2 Results
+=head2 Result Types
 
 The results returned inside the callback or via C<poll_results> can be of the
 following kind:
@@ -540,22 +441,176 @@ logfile, URL...)
 
 =back
 
+=head2 API Definition
+
+The following API needs to be implemented by all IMP plugins.
+C<$class>, C<$factory> and C<$analyzer> in the following might be (objects of)
+different classes, but don't need to.
+The C<Net::IMP::Base> implementation uses the same class for plugin, factory and
+analyzer.
+
+=over 4
+
+=item $class->str2cfg($string) => %config
+
+This creates a config hash from a given string.
+No verification of the config is done.
+
+=item $class->cfg2str(%config) => $string
+
+This creates a string from a config hash.
+No verification of the config is done.
+
+=item $class->validate_cfg(%config) -> @error
+
+This validates the config and returns a list of errors.
+Config is valid, if no errors are returned.
+
+=item $class->new_factory(%args) => $factory
+
+This creates a new factory object which is later used to create the analyzer.
+C<%args> are used to describe the properties common for all analyzers created by
+the same factory.
+
+=item $factory->get_interface(@caller_if) => @plugin_if
+
+This gets the interfaces supported by the factory.
+Each interface consists of C<< [ $input_type, \@output_types ] >>, where
+
+=over 8
+
+=item $input_type
+
+is either a single input data type (like IMP_DATA_STREAM, IMP_DATA_PACKET) or a
+protocol type (like IMP_DATA_HTTP) which includes multiple data types.
+
+=item @output_types
+
+is a list of the return types, which are used by the interface, e.g. IMP_PASS,
+IMP_LOG,...
+
+=back
+
+If called without arguments the method will return all the interfaces supported
+by the factory.
+Only in this case an interface description with no data type/protocol
+might be returned, which means, that all data types/protocols are supported.
+
+If called with a list of interfaces the caller supports, it will return the
+subset of these interfaces, which are also supported by the plugin.
+
+=item $factory->set_interface($want_if) => $new_factory
+
+This will return a factory object supporting the given interface.
+This factory might be the same as as original factory, but might also be
+a different factory, which translates data types.
+
+If the interface is not supported it will return undef.
+
+=back
+
+
+=item $factory->new_analyzer(%args) => $analyzer|undef
+
+Creates a new analyzer object.
+The details for C<%args> depend on the analyzed protocol and the requirements
+of the analyzer, but usually these are things like source and destination ip
+and port, URL, mime type etc.
+
+With a key of C<cb> the callback can already be set here as
+C<<[$code,@args]>> instead of later with C<set_callback>.
+
+The factory might decide based on the given context information, that no
+analysis is needed.
+In this case it will return C<undef>, otherwise the new analyzer object.
+
+=item $analyzer->set_callback($code,@args)
+
+Sets or changes the callback of the analyzer object.
+If results are outstanding, they might be delivered to this callback before
+the method returns.
+
+C<$code> is a coderef while C<@args> are additional user specified arguments
+which should be used in the callback (typically object reference or similar).
+The callback is called with C<< $code->(@args,@results) >> whenever new results
+are available.
+
+If $code is undef, an existing callback will be removed.
+
+If no callback is given, the results need to be polled with C<poll_results>.
+
+=item $analyzer->data($dir,$data,$offset,$type)
+
+Forwards new data to the analyzer.
+C<$dir> is the direction, e.g. 0 from client and 1 from server.
+C<$data> are the data.
+C<$data> of '' means end of data.
+
+C<$offset> is the current position (octet) in the data stream.
+It must be set to a value greater than 0 after data got omitted as a result of
+PASS or PASS_PATTERN, so that the analyzer can resynchronize the internal
+position value with the original position in the data stream.
+In any other case it should be set to 0.
+
+C<$type> is the type of the data.
+There are two global data type definitions:
+
+=over 4
+
+=item IMP_DATA_STREAM (-1)
+
+This is for generic streaming data, e.g. chunks from these datatypes can be
+concatinated and analyzed together, parts can be replaced etc.
+
+=item IMP_DATA_PACKET (+1)
+
+This is for generic packetized data, where each chunk (e.g. call to C<data>)
+contains a single packet, which should be analyzed as a separate entity.
+This means no concatinating with previous or future chunks and no replacing of
+only parts of the packet.
+
+Also, any offsets given in calls to C<data> or in the results should be at
+packet boundary (or IMP_MAX_OFFSET), at least for data modifications.
+It will ignore (pre)pass which are not a packet boundary in the hope, that more
+(pre)pass will follow.
+A (pre)pass for some parts of a packet followed by a replacement is not allowed
+and will probably cause an exception.
+
+=back
+
+All other data types are considered either subtypes of IMP_DATA_PACKET
+(value >0) or of IMP_DATA_STREAM (value<0) and share their restrictions.
+Also only streaming data of the same type can be concatinated and
+analyzed together.
+
+Results will be delivered through the callback or via C<poll_results>.
+
+=item $analyzer->poll_results => @results
+
+Returns outstanding results.
+If a callback is attached, no results will be delivered this way.
+
+=item Net::IMP->set_debug
+
+This is just a convinient way to call C<< Net::IMP::Debug->set_debug >>.
+See L<Net::IMP::Debug> for more information.
+
+=back
+
 =head1 TODO
 
 =over 4
 
 =item * sample integration into relayd
 
-=item * optimizing initial setup
+=item * protocol to add remote analyzers
 
-Optimizing initial setup, so that IMP_PREPASS IMP_MAXOFFSET could be set w/o
-getting data first.
-
-=item * define level in IMP_LOG
-
-=item * specify IMP_PORT_*
+=item * add more return types like IMP_PORT_*
 
 Specify IMP_PORT_* and have sample implementation which uses it.
+Should be used to inform caller, that inside that protocol it found dynamic
+port allocations (like for FTP data streams or SIP RTP streams) and that caller
+should track these connections too.
 
 =item * behavior on EOF
 
@@ -567,6 +622,46 @@ the processing of the shutdown by sending an IMP_PASS with an offset after the
 connection end.
 
 =back
+
+=head2 Helper Functions
+
+The function C<IMP_DATA> is provided to simplify definition of new data types,
+for example:
+
+    our @EXPORT = IMP_DATA('http',
+	'header'  => +1,   # packet type
+	'body'    => -2,   # streaming type
+	...
+    );
+    push @EXPORT = IMP_DATA('httprq[http+10]',
+	'header'  => +1,   # packet type
+	'content' => -2,   # streaming type
+	...
+    );
+
+This call of IMP_DATA is equivalent to the following perl declaration:
+
+    use Scalar::Util 'dualvar';
+    our @EXPORT = (
+	'IMP_DATA_HTTP', 'IMP_DATA_HTTP_HEADER','IMP_DATA_HTTP_BODY',...
+	'IMP_DATA_HTTPRQ', 'IMP_DATA_HTTPRQ_HEADER','IMP_DATA_HTTPRQ_BODY',...
+    );
+
+    # getservbyname('http','tcp') -> 80
+    use constant IMP_DATA_HTTP           
+	=> dualvar(80 << 16,'imp.data.http');
+    use constant IMP_DATA_HTTP_HEADER    
+	=> dualvar((80 << 16) + 1,'imp.data.http.header');
+    use constant IMP_DATA_HTTP_BODY      
+	=> dualvar( -( (80 << 16) + 2 ), 'imp.data.http.body');
+    ...
+    use constant IMP_DATA_HTTPRQ         
+	=> dualvar((80 << 16) + 10,'imp.data.httprq');
+    use constant IMP_DATA_HTTPRQ_HEADER  
+	=> dualvar((80 << 16) + 10 + 1,'imp.data.httprq.header');
+    use constant IMP_DATA_HTTPRQ_CONTENT 
+	=> dualvar( -( (80 << 16) + 10 + 2 ),'imp.data.httprq.content');
+    ...
 
 =head1 AUTHOR
 

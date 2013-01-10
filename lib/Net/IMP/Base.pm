@@ -6,11 +6,12 @@ use Net::IMP;
 use Carp 'croak';
 use fields (
     'factory_args', # arguments given to new_factory
-    'if_adaptor',   # interface adaptor class/sub for new analyzer
     'meta',         # hash with meta data given to new_analyzer
     'analyzer_cb',  # callback, set from new_analyzer or with set_callback
     'analyzer_rv',  # collected results for polling or callback, set from add_results
 );
+
+use Net::IMP::Debug;
 
 
 ############################################################################
@@ -70,22 +71,39 @@ sub new_analyzer {
     my Net::IMP::Base $factory = shift;
     my %args = @_;
     my $cb = delete $args{cb};
-    my Net::IMP::Base $analyzer = fields::new(ref($factory));
+
+    my $analyzer = fields::new(ref($factory));
     %$analyzer = ( 
 	%$factory,          # common properties of all analyzers
 	%args,              # properties of this analyzer
 	analyzer_rv => [],  # reset queued return values
-	analyzer_cb => $cb, # callback given?
     );
-    if ( my $adaptor = $analyzer->{if_adaptor} ) {
-	undef $analyzer->{if_adaptor};
-	$analyzer = $adaptor->new($analyzer);
-    }
+    $analyzer->set_callback(@$cb) if $cb;
     return $analyzer;
 }
 
-# set/get interface to use
-sub interface {
+# get available interfaces
+sub get_interface {
+    return map { $_->[0] } shift->_get_interface(@_);
+}
+
+# returns factory for the given interface
+# might be a new one or same as called on
+sub set_interface {
+    my Net::IMP::Base $factory = shift;
+    my $want = shift;
+    my ($if) = $factory->_get_interface($want) or return;
+    if ( my $adaptor = $if->[1] ) {
+	# use adaptor
+	return $adaptor->new_factory(factory => $factory)
+    } else {
+	return $factory
+    }
+}
+
+# returns list of available [ if, adaptor_class ], restricted by given  @if
+sub INTERFACE { die "needs to be implemented" }
+sub _get_interface {
     my Net::IMP::Base $factory = shift;
     my @local = $factory->INTERFACE;
 
@@ -98,16 +116,27 @@ sub interface {
 	my ($in,$out) = @$if;
 	for my $lif (@local) {
 	    my ($lin,$lout,$adaptor) = @$lif;
-	    next if $lin and $lin != $in; # no match data type/proto
+	    if ( $lin and $lin != $in ) {
+		# no match data type/proto
+		debug("data type mismatch: want $in have $lin");
+		next;
+	    }
 
 	    # any local return types from not in out?
 	    my %lout = map { $_ => 1 } @$lout;
 	    delete @lout{@$out};
-	    next if %lout; # caller does not support all return types
-
+	    if ( %lout ) {
+		# caller does not support all return types
+		debug("no support for return types ".join(' ',keys %lout));
+		next;
+	    }
+		
 	    if ( $adaptor ) {
 		# make sure adaptor class exists
-		eval "require $adaptor" or next
+		if ( ! eval "require $adaptor" ) {
+		    debug("failed to load $adaptor: $@");
+		    next;
+		}
 	    }
 
 	    # matches
@@ -116,10 +145,8 @@ sub interface {
 	}
     }
 
-    $factory->{if_adaptor} = $match[0][1] if @match == 1;
-    return map { $_->[0] } @match;
+    return @match;
 }
-sub INTERFACE { die "needs to be implemented" }
 
 ############################################################################
 # API analyzer methods
@@ -186,8 +213,9 @@ Net::IMP::Base - base class to make writing of Net::IMP analyzers easier
 
     # factory methods
     sub INTERFACE ...      - needs to be implemented
-    # sub interface ...    - has default implementation using sub INTERFACE
-    sub new_analyzer ...   - needs to be implemented
+    # sub get_interface .. - has default implementation using sub INTERFACE
+    # sub set_interface .. - has default implementation using sub INTERFACE
+    # sub new_analyzer ... - has default implementation
 
     # analyzer methods
     sub data ...           - needs to be implemented
@@ -237,9 +265,9 @@ L<Net::IMP>:
 
 =over 4
 
-=item $factory->interface(@in) => @out
+=item $factory->get_interface(@caller_if) => @plugin_if
 
-This method provides an implementation of the C<interface> API function. 
+This method provides an implementation of the C<get_interface> API function. 
 This implementation requires the implementation of a function C<INTERFACE> like
 this:
 
@@ -256,10 +284,18 @@ this:
     ]
   )}
 
-There is no need to re-implement method C<interface>, but C<INTERFACE>
+There is no need to re-implement method C<get_interface>, but C<INTERFACE>
 should be implemented. 
 If your plugin can handle any data types you can set the type to C<undef>
 in the interface description.
+
+=item $factory->set_interface($want_if) => $new_factory
+
+This method provides an implementation of the C<set_interface> API function. 
+This implementation requires the implementation of C<INTERFACE> like described
+for C<get_interface>.
+There is no need to re-implement method C<set_interface>, but C<INTERFACE>
+should be implemented. 
 
 =item $factory->new_analyzer(%args)
 
@@ -342,20 +378,19 @@ your own analyzer.
 
 =over 4
 
-=item $analyzer->run_callback(@results)
-
-This method should be called from the analyzer object from within the C<data>
-method to propagate results using the callback provided by the user of the
-analyzer.
-It will propagate all spooled results and new results given to this method.
-
-Each result is an array reference, see L<Net::IMP> for details.
-
 =item $analyzer->add_results(@results)
 
-This method adds new results to the list of collected results, but will not
-call any callbacks.
+This method adds new results to the list of collected results.
+Each result is an array reference, see L<Net::IMP> for details.
+
 It will usually be used in the analyzer from within the C<data> method.
+
+=item $analyzer->run_callback(@results)
+
+Like C<add_results> this will add new results to the list of collected results.
+Additionally it will propagate the results using the callback provided by the
+user of the analyzer.
+It will propagate all spooled results and new results given to this method.
 
 =back
 

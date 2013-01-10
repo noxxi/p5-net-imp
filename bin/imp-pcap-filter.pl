@@ -14,7 +14,7 @@ use Net::IMP::Cascade;
 use Net::IMP::Debug;
 
 # interface we support in this program
-my @interface = ([ 
+my $interface = [ 
     IMP_DATA_STREAM, 
     [
 	IMP_PASS,
@@ -24,7 +24,7 @@ my @interface = ([
 	IMP_LOG,
 	IMP_ACCTFIELD,
     ]
-]);
+];
 
 
 sub usage {
@@ -84,7 +84,7 @@ if (@factory == 1) {
 	parts => \@factory 
     ) or croak("cannot create factory from Net::IMP::Cascade");
 }
-$imp_factory->interface(@interface) or 
+$imp_factory->set_interface($interface) or 
     croak("cannot use modules - wrong interface");
 
 my $cw  = ConnWriter->new($pcap_out,$imp_factory);

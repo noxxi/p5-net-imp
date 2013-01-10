@@ -28,7 +28,7 @@ my %rtypes_implemented_myself = map { $_ => 1 } (
     IMP_ACCTFIELD,
 );
 
-sub interface {
+sub get_interface {
     my Net::IMP::Cascade $factory = shift;
     my $parts = $factory->{factory_args}{parts};
 
@@ -36,7 +36,7 @@ sub interface {
     my @if4part;
     for my $p ( @$parts ) {
 	my @if;
-	for my $if ( $p->interface(@_)) {
+	for my $if ( $p->get_interface(@_)) {
 	    # $if should require only return types I support
 	    push @if,$if 
 		if ! grep { ! $rtypes_implemented_myself{$_} } @{ $if->[1] };
@@ -48,7 +48,7 @@ sub interface {
     # find interfaces which are supported by all parts
     my @common;
     for( my $i=0;$i<@if4part;$i++ ) {
-	for my $if_i ( @{  $if4part[$i] } ) {
+	for my $if_i ( @{ $if4part[$i] } ) {
 	    my ($in_i,$out_i) = @$if_i;
 	    # check if $if_i matches at least on interface description in 
 	    # all other parts, e.g. $if_i is same or included in $if_k
@@ -79,6 +79,29 @@ sub interface {
 	push @uniq,$key if ! $m{$key}++;
     }
     return @uniq;
+}
+
+sub set_interface {
+    my Net::IMP::Cascade $factory = shift;
+    my @if = @_;
+    my $parts = $factory->{factory_args}{parts};
+
+    my @new_parts;
+    for(my $i=0;$i<@$parts;$i++) {
+	my $np = $parts->[$i]->set_interface(@if)
+	    or return; # cannot use interface
+	$np == $parts->[$i] and next; # no change of part
+	$new_parts[$i] = $np; # got new factory for part
+    }
+
+    return $factory if ! @new_parts; # interface supported by original factory
+
+    # some parts changed, create new factory for this cascade
+    for(my $i=0;$i<@$parts;$i++) {
+	$new_parts[$i] ||= $parts->[$i]; # copy parts which did not change
+    }
+
+    return ref($factory)->new_factory( parts => \@new_parts );
 }
 
 sub new_analyzer {

@@ -1,3 +1,10 @@
+0.55 2013/01/10
+- new function Net::IMP::IMP_DATA to simplify definition of new data types
+- reworked documentation in Net::IMP
+- Net::IMP::Base 
+  - instead of method interface now methods get_interface and set_interface
+  - no internal handling of adaptors, instead set_interface returns new factory
+    based on adaptor if necessary for the data type
 0.54 2013/01/07
 - stream type now -1
 - put factory into Net::IMP::Base, arguments for factory are not given directly
