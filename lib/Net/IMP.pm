@@ -669,7 +669,7 @@ notably Alexander Bluhm and others at genua.de.
 
 =head1 COPYRIGHT
 
-Copyright by Steffen Ullrich.
+Copyright 2012,2013 Steffen Ullrich.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
