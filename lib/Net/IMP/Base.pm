@@ -83,17 +83,13 @@ sub new_analyzer {
 }
 
 # get available interfaces
-sub get_interface {
-    return map { $_->[0] } shift->_get_interface(@_);
-}
-
 # returns factory for the given interface
 # might be a new one or same as called on
 sub set_interface {
     my Net::IMP::Base $factory = shift;
     my $want = shift;
-    my ($if) = $factory->_get_interface($want) or return;
-    if ( my $adaptor = $if->[1] ) {
+    my ($if) = $factory->get_interface($want) or return;
+    if ( my $adaptor = $if->[2] ) {
 	# use adaptor
 	return $adaptor->new_factory(factory => $factory)
     } else {
@@ -103,7 +99,7 @@ sub set_interface {
 
 # returns list of available [ if, adaptor_class ], restricted by given  @if
 sub INTERFACE { die "needs to be implemented" }
-sub _get_interface {
+sub get_interface {
     my Net::IMP::Base $factory = shift;
     my @local = $factory->INTERFACE;
 
@@ -140,7 +136,7 @@ sub _get_interface {
 	    }
 
 	    # matches
-	    push @match, [ $if,$adaptor ];
+	    push @match, [ $in,$out,$adaptor ];
 	    last;
 	}
     }

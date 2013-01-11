@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.55';
+our $VERSION = '0.56';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -506,9 +506,6 @@ This factory might be the same as as original factory, but might also be
 a different factory, which translates data types.
 
 If the interface is not supported it will return undef.
-
-=back
-
 
 =item $factory->new_analyzer(%args) => $analyzer|undef
 

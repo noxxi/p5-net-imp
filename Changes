@@ -1,3 +1,5 @@
+0.56 2013/01/11
+- small fix for Net::IMP::Base::get_interface
 0.55 2013/01/10
 - new function Net::IMP::IMP_DATA to simplify definition of new data types
 - reworked documentation in Net::IMP
