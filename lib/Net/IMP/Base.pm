@@ -118,13 +118,17 @@ sub get_interface {
 		next;
 	    }
 
-	    # any local return types from not in out?
-	    my %lout = map { $_ => 1 } @$lout;
-	    delete @lout{@$out};
-	    if ( %lout ) {
-		# caller does not support all return types
-		debug("no support for return types ".join(' ',keys %lout));
-		next;
+	    if ( ! $out || ! @$out ) {
+		# caller will accept any return types
+	    } else {
+		# any local return types from not in out?
+		my %lout = map { $_ => 1 } @$lout;
+		delete @lout{@$out};
+		if ( %lout ) {
+		    # caller does not support all return types
+		    debug("no support for return types ".join(' ',keys %lout));
+		    next;
+		}
 	    }
 		
 	    if ( $adaptor ) {

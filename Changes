@@ -1,3 +1,8 @@
+0.57 2013/01/15
+- removed Net::IMP::HTTP_AddXHeader, it is now as Example::AddXHeader inside
+  Net::IMP::HTTP
+- Net::IMP::Base::get_interface interprets empty return types as caller
+  supports any return type
 0.56 2013/01/11
 - small fix for Net::IMP::Base::get_interface
 0.55 2013/01/10
