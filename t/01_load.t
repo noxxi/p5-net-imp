@@ -15,7 +15,6 @@ test: for (
     [ 'Net::IMP::Filter' ],
     [ 'Net::IMP::SessionLog' ],
     [ 'Net::IMP::Cascade' ],
-    [ 'Net::IMP::HTTP_AddXFooHeader' => 'Net::Inspect!0.24' ],
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
     ){
     my ($mod,@deps) = @$_;
