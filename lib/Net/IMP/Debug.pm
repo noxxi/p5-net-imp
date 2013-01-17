@@ -22,6 +22,10 @@ sub import {
 	    *DEBUG = $_[$i+1];
 	    splice(@_,$i,2);
 	    $i-=2;
+	} elsif ( $_[$i] eq 'rxvar' ) {
+	    *DEBUG_RX = $_[$i+1];
+	    splice(@_,$i,2);
+	    $i-=2;
 	} elsif ( $_[$i] eq 'sub' ) {
 	    $DEBUG_SUB = $_[$i+1];
 	    splice(@_,$i,2);
@@ -170,6 +174,11 @@ get loaded).
 
 This make the local C<$DEBUG> variable an alias for C<$myDEBUG>.
 C<$myDEBUG> needs to be a global variable, lexical variables will not work.
+
+=item rxvar => \$myDEBUG_RX
+
+This make the local C<$DEBUG_RX> variable an alias for C<$myDEBUG_RX>.
+C<$myDEBUG_RX> needs to be a global variable, lexical variables will not work.
 
 =item sub => \&my_debug
 
