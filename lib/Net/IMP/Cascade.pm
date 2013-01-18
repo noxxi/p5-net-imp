@@ -76,7 +76,7 @@ sub get_interface {
     my (@uniq,%m);
     for( @common ) {
 	my $key = ( $_->[0] // '<undef>' )."\0".join("\0",sort @{$_->[1]});
-	push @uniq,$key if ! $m{$key}++;
+	push @uniq,$_ if ! $m{$key}++;
     }
     return @uniq;
 }

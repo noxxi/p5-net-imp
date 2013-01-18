@@ -7,6 +7,7 @@ use Net::IMP::Cascade;
 use Net::IMP::Pattern;
 use Net::IMP::Debug;
 use Data::Dumper;
+$Data::Dumper::Sortkeys = 1;
 
 use Test::More;
 

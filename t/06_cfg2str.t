@@ -3,6 +3,7 @@ use warnings;
 use Test::More tests => 6;
 use Data::Dumper;
 
+$Data::Dumper::Sortkeys = 1;
 
 rt(
     'Net::IMP::Pattern',

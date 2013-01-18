@@ -9,6 +9,7 @@ use Net::IMP::Debug;
 use Data::Dumper;
 use Test::More tests => 1;
 
+$Data::Dumper::Sortkeys = 1;
 $DEBUG=0; # enable for extensiv debugging
 
 my $analyzer = Net::IMP::Cascade->new_factory( parts => [

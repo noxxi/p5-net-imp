@@ -1,5 +1,7 @@
-XXX 2013/01/17
+0.59 2013/01/18
+- fix Cascade::get_interface
 - Net::IMP::Debug - let re_use DEBUG_RX variable from other lib too
+- use Data::Dumper::Sortkeys in tests to make comparing results more reliable
 0.58 2013/01/16
 - fixed t/01_load which still tried to test for Net::IMP::HTTP_AddXHeader
 0.57 2013/01/15

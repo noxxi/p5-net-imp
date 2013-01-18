@@ -9,6 +9,7 @@ use Net::IMP::Debug;
 use Data::Dumper;
 use Test::More;
 
+$Data::Dumper::Sortkeys = 1;
 $DEBUG=0; # enable for extensiv debugging
 
 # if you want to run only selected tests add test numbers to cmdline

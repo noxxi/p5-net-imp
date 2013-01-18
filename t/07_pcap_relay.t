@@ -4,6 +4,8 @@ use Test::More;
 use File::Temp 'tempfile';
 use Data::Dumper;
 
+$Data::Dumper::Sortkeys = 1;
+
 for (qw(
     Net::Pcap 
     Net::PcapWriter 
