@@ -32,7 +32,7 @@ sub validate_cfg {
 	push @err, "format should be bin or pcap"
     }
 
-    my $dir = $args{dir};
+    my $dir = delete $args{dir};
     push @err, "no dir given" if ! $dir;
 
     push @err,$class->SUPER::validate_cfg(%args);
