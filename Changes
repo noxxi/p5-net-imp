@@ -1,3 +1,5 @@
+0.60 2013/02/19
+- replace can now replace empty data, like to add data at eof
 0.59 2013/01/18
 - fix Cascade::get_interface
 - Net::IMP::Debug - let re_use DEBUG_RX variable from other lib too
