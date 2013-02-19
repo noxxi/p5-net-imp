@@ -208,10 +208,8 @@ sub data {
 	    # rx did not match, but eof:
 	    # no more data will come which can match rx so we can pass the rest
 	    $DEBUG && debug("pass rest of data on eof");
-	    if ( $buf ne '' ) {
-		push @rv,[ IMP_PASS,$dir,$self->{offset}[$dir]+=length($buf)];
-		$buf = '';
-	    }
+	    push @rv,[ IMP_PASS,$dir,IMP_MAXOFFSET ];
+	    $buf = '';
 
 	    last; # there will be no more matches because of no data
 

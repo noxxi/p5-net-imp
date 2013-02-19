@@ -48,7 +48,8 @@ my @expect = (
     [ 'replace', 1, 13, 'ef' ],
     [ 'prepass', 1, 13 ],
     [ 'prepass', 0, 9 ],
-    [ 'replace', 0, 13, 'cdef' ]
+    [ 'replace', 0, 13, 'cdef' ],
+    [ 'prepass', 0, -1 ]
 );
 
 if ( Dumper(\@expect) ne Dumper(\@rv)) {

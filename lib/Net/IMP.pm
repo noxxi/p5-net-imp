@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.59';
+our $VERSION = '0.60';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -337,6 +337,10 @@ on a C<Content-length> header).
 
 A special case is a C<$offset> of IMP_MAXOFFSET, in this case the analyzer is
 not interested in further information about the connection.
+In other words, no more changes on input data will be done and an eof on the
+input can be forwarded to the output. This interpretation is important, when an
+IMP_REPLACE tries to replace nothing with data, e.g. to add data once eof is
+detected etc.
 
 =item [ IMP_PASS_PATTERN, $dir, $regex, $len ]
 
@@ -366,6 +370,15 @@ buffer (e.g. which were not passed) wether they contain the pattern.
 If the caller finds the pattern, it should call C<data> with an explicit
 offset, so that the analyzer can resynchronize the position in the data
 stream.
+
+=item [ IMP_REPLACE, $dir, $offset, $data ]
+
+Ignore the original data up to $offset, instead send C<$data>.
+C<$offset> needs be be in the range of the data the analyzer got through
+C<data> method, e.g. replacement of future data is not possible.
+Neither is a replacement of already forwarded data possible, but C<$offset> can
+be at the position of the last pass, replace etc to insert new data into the
+data stream where no data have been (typically at eof).
 
 =item [ IMP_PREPASS, $dir, $offset ]
 
@@ -399,12 +412,6 @@ the connection with RST).
 Deny any more data on this context and close the context.
 The preferred way for closing the context is to be not visible to the client
 (e.g just drop any more packets of an UDP connection).
-
-=item [ IMP_REPLACE, $dir, $offset, $data ]
-
-Ignore the original data up to $offset, instead send C<$data>.
-C<$offset> needs be be in the range of the data the analyzer got through
-C<data> method.
 
 =item [ IMP_TOSENDER, $dir, $data ]
 
@@ -610,15 +617,6 @@ Specify IMP_PORT_* and have sample implementation which uses it.
 Should be used to inform caller, that inside that protocol it found dynamic
 port allocations (like for FTP data streams or SIP RTP streams) and that caller
 should track these connections too.
-
-=item * behavior on EOF
-
-There is currently no way for the analyzer to issue a IMP_REPLACE on
-read-shutdown on one side, because the IMP client will forward the shutdown
-once all buffers are empty.
-It might be possible solution to require the analyzer to explicitly acknowledge
-the processing of the shutdown by sending an IMP_PASS with an offset after the
-connection end.
 
 =back
 

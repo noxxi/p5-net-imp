@@ -334,8 +334,9 @@ sub new_analyzer {
 	    # (on IMP_PASS) or send it to the analyzer after forwarding it
 	    # (IMP_PREPASS)
 	    while ( my $buf = shift(@$bufs) ) {
-		my $keep = ( $p->{lppos} == IMP_MAXOFFSET) 
-		    ? -1 : $buf->{endpos} - $p->{lppos};
+		my $keep = ( $p->{lppos} != IMP_MAXOFFSET) 
+		    ? $buf->{endpos} - $p->{lppos}
+		    : -1 ;
 		if ( $keep <=0 ) {
 		    $DEBUG && debug("fwd complete buf lppos=%d endpos=%d",
 			$p->{lppos}, $buf->{endpos});
@@ -742,7 +743,7 @@ sub new_analyzer {
 		    die "cannot replace \@$offset because of ".
 			"$p->{lptype} \@$p->{lppos}";
 
-		} elsif ( $offset <= $startpos ) {
+		} elsif ( $offset < $startpos ) {
 		    # We got a replacement for data, we already handled.
 		    # This should never happen (but can, if the analyzer is
 		    # bogus).
