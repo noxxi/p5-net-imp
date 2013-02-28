@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-package IRCShout;
+package Net::IMP::Example::IRCShout;
 use base 'Net::IMP::Base';
 use fields (
     'pos',   # current position in stream
@@ -70,13 +70,13 @@ sub data {
 
 sub shout {
     my $line = shift;
-    return $line =~s{\A
+    return $$line =~s{\A
 	(
 	    (?: :\S+\x20+ )?      # opt msg prefix
 	    PRIVMSG\x20+\S+\x20+  # privmsg rcpt
 	)
 	(.+)                      # message
-    }{$1\U$2}                     # shout message
+    }{$1\U$2}x                    # shout message
 }
 
 1;
@@ -85,15 +85,11 @@ __END__
 
 =head1 NAME 
 
-IRCShout - make IRC shoult to others
+IRCShout - make IRC shout to others
 
 =head1 DESCRIPTION
 
 This plugins makes the message from all IRC PRIVMSG commands upper case.
-
-=head1 BUGS
-
-Untested, maybe it works, maybe not
 
 =head1 AUTHOR
 
