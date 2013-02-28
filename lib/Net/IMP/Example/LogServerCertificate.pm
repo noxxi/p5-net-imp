@@ -13,8 +13,8 @@ use Net::IMP::Debug;
 use Carp 'croak';
 
 sub INTERFACE {
-    return ([ 
-	IMP_DATA_STREAM, 
+    return ([
+	IMP_DATA_STREAM,
 	[ IMP_PREPASS, IMP_LOG ]
     ])
 }
@@ -47,10 +47,10 @@ sub data {
     if ( _read_ssl_handshake($self,\$buf,2)                  # Server Hello
 	and my $certs = _read_ssl_handshake($self,\$buf,11)  # Certificates
     ) {
-	$self->{done} = 1; 
+	$self->{done} = 1;
 
 	# find OID 2.5.4.3 (coommon name) the quick and dirty way
-	if ( $certs =~m{\x06\x03\x55\x04\x03.}g 
+	if ( $certs =~m{\x06\x03\x55\x04\x03.}g
 	    and my $name = _get_asn1_string(substr($certs,pos($certs)))) {
 	    $self->run_callback([ IMP_LOG,1,0,0,IMP_LOG_INFO,"cn=$name" ]);
 	}
@@ -60,7 +60,7 @@ sub data {
 	if $self->{done};
 }
 
-sub _read_ssl_handshake {   
+sub _read_ssl_handshake {
     my ($self,$buf,$expect_htype) = @_;
     return if length($$buf) < 22; # need way more data
 
@@ -82,7 +82,7 @@ sub _read_ssl_handshake {
     return substr($$buf,0,$len,'');
 
     bad:
-    $self->{done} = 1; 
+    $self->{done} = 1;
     return;
 }
 

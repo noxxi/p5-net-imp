@@ -14,8 +14,8 @@ use Net::IMP::Cascade;
 use Net::IMP::Debug;
 
 # interface we support in this program
-my $interface = [ 
-    IMP_DATA_STREAM, 
+my $interface = [
+    IMP_DATA_STREAM,
     [
 	IMP_PASS,
 	IMP_PREPASS,
@@ -36,7 +36,7 @@ $0 Options*  -r in.pcap -w out.pcap
 Options:
   -h|--help               show usage
   -M|--module mod[=arg]   use Net::IMP module for connections
-                          can be given multiple times for cascading modules
+			  can be given multiple times for cascading modules
   -r|--read  in.pcap      input pcap file
   -w|--write out.pcap     output pcap file
   -d|--debug              debug mode
@@ -71,7 +71,7 @@ for my $module (@module) {
 	or die "invalid module $module";
     eval "require $mod" or die "cannot load $module";
     my %args = $mod->str2cfg($args//'');
-    my $factory = $mod->new_factory(%args) or 
+    my $factory = $mod->new_factory(%args) or
 	croak("cannot create Net::IMP factory for $mod");
     push @factory, $factory;
 }
@@ -81,10 +81,10 @@ if (@factory == 1) {
     $imp_factory = $factory[0];
 } elsif (@factory) {
     $imp_factory = Net::IMP::Cascade->new_factory(
-	parts => \@factory 
+	parts => \@factory
     ) or croak("cannot create factory from Net::IMP::Cascade");
 }
-$imp_factory->set_interface($interface) or 
+$imp_factory->set_interface($interface) or
     croak("cannot use modules - wrong interface");
 
 my $cw  = ConnWriter->new($pcap_out,$imp_factory);
@@ -96,7 +96,7 @@ my $time;
 pcap_loop($pcap_in,-1,sub {
     my (undef,$hdr,$data) = @_;
     if ( ! $time || $hdr->{tv_sec}-$time>10 ) {
-        $tcp->expire($time = $hdr->{tv_sec});
+	$tcp->expire($time = $hdr->{tv_sec});
     }
     return $pc->pktin($data,$hdr);
 },undef);
@@ -122,7 +122,7 @@ sub new {
 
 sub new_connection {
     my ($self,$meta) = @_;
-    my $imp = $self->{imp} 
+    my $imp = $self->{imp}
 	&& $self->{imp}->new_analyzer(meta => $meta);
     my $pcap = $self->{pcap}->tcp_conn(
 	$meta->{saddr}, $meta->{sport},

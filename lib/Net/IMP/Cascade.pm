@@ -38,7 +38,7 @@ sub get_interface {
 	my @if;
 	for my $if ( $p->get_interface(@_)) {
 	    # $if should require only return types I support
-	    push @if,$if 
+	    push @if,$if
 		if ! grep { ! $rtypes_implemented_myself{$_} } @{ $if->[1] };
 	}
 	@if or return; # nothing in common
@@ -50,7 +50,7 @@ sub get_interface {
     for( my $i=0;$i<@if4part;$i++ ) {
 	for my $if_i ( @{ $if4part[$i] } ) {
 	    my ($in_i,$out_i) = @$if_i;
-	    # check if $if_i matches at least on interface description in 
+	    # check if $if_i matches at least on interface description in
 	    # all other parts, e.g. $if_i is same or included in $if_k
 	    # - data type/proto: $in_k should be undef or same as $in_i
 	    # - return types: $out_i should include $out_k
@@ -59,7 +59,7 @@ sub get_interface {
 		for my $if_k ( @{  $if4part[$k] } ) {
 		    my ($in_k,$out_k) = @$if_k;
 		    # should be same data type or $in_k undef
-		    next if $in_k and ( ! $in_i or $in_k != $in_i ); 
+		    next if $in_k and ( ! $in_i or $in_k != $in_i );
 		    # $out_i should include all of $out_k
 		    my %out_k = map { $_ => 1 } @$out_k;
 		    delete @out_k{ @$out_i };
@@ -121,7 +121,7 @@ sub new_analyzer {
     #   - data: the data
     #   - dtype: the type of data, e.g. IMP_DATA_STREAM, IMP_DATA_PACKET...
     #   - endpos: position of end of data, relativ to input stream of part
-    #   - rtype: result type, which caused this buffer, eg IMP_PASS, 
+    #   - rtype: result type, which caused this buffer, eg IMP_PASS,
     #     IMP_REPLACE... initially 0 (e.g. no type)
     #   - eof: true if last buf in stream
     #   because replacements might add/delete bytes we need to track these
@@ -251,8 +251,8 @@ sub new_analyzer {
 	my $endpos = $bufs->[-1]{endpos};
 
 	# add data to buf:
-	# if there is no gap and rtype of buf matches and no adjustments are 
-	# used and dtype is stream type, then we can add data to an 
+	# if there is no gap and rtype of buf matches and no adjustments are
+	# used and dtype is stream type, then we can add data to an
 	# existing buf, otherwise we need to create a new one
 	# data from buffers with adjustments can never be merged, because
 	# adjustments are considered beeing at the end of the buf, not
@@ -260,13 +260,13 @@ sub new_analyzer {
 	if ( $pos and $endpos > $pos ) {
 	    die "overlapping data ($pos,$endpos)"
 
-	} elsif ( 
+	} elsif (
 	    ( ! $pos or $endpos == $pos ) # no gap
 	    # caused by same result type
-	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} ) 
-	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} # no adjustments 
+	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} )
+	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} # no adjustments
 	    and ( # same streaming data type
-		! defined $bufs->[-1]{dtype} or 
+		! defined $bufs->[-1]{dtype} or
 		$dtype <0 and $dtype == $bufs->[-1]{dtype} )
 	    ) {
 	    # append
@@ -334,7 +334,7 @@ sub new_analyzer {
 	    # (on IMP_PASS) or send it to the analyzer after forwarding it
 	    # (IMP_PREPASS)
 	    while ( my $buf = shift(@$bufs) ) {
-		my $keep = ( $p->{lppos} != IMP_MAXOFFSET) 
+		my $keep = ( $p->{lppos} != IMP_MAXOFFSET)
 		    ? $buf->{endpos} - $p->{lppos}
 		    : -1 ;
 		if ( $keep <=0 ) {
@@ -451,7 +451,7 @@ sub new_analyzer {
 		    if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
 			$imp[$pi]->data(
 			    $dir,
-			    '', 
+			    '',
 			    $p->{gap} ? $p->{fwapos}:0,
 			    $buf->{dtype},
 			)
@@ -542,7 +542,7 @@ sub new_analyzer {
 		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{rtype},$dir,".
 		    "$eob=$fw->{endpos}-adjust");
 
-		if ( $eob < $global_lastpass[$dir]{pos} 
+		if ( $eob < $global_lastpass[$dir]{pos}
 		    or $global_lastpass[$dir]{pos} == IMP_MAXOFFSET ) {
 		    # we already issued an IMP_(PRE)PASS for this offset
 		    # no need to propagate
@@ -645,7 +645,7 @@ sub new_analyzer {
 		if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
 		    $imp[$pi]->data(
 			$dir,
-			'', 
+			'',
 			$p->{gap} ? $p->{fwapos}:0,
 			$bufs->[-1]{dtype}
 		    )
@@ -698,13 +698,13 @@ sub new_analyzer {
 		    ($offset != IMP_MAXOFFSET and $offset < $p->{lppos})
 		    )) {
 		    # ignore because we got an IMP_(PRE)PASS with a higher
-		    # offset before 
+		    # offset before
 		    $DEBUG && debug("impcb[$dir] $rtype ignoring, ".
 			"offset($offset)<lppos($p->{lppos})");
 
 		} elsif ( $offset <= $startpos and $offset != IMP_MAXOFFSET ) {
 		    # ignore because we got an IMP_(PRE)PASS for data we
-		    # already processed 
+		    # already processed
 		    $DEBUG && debug("impcb[$dir][$pi] $rtype ignoring, ".
 			"offset($offset)<pos($startpos)");
 
@@ -735,7 +735,7 @@ sub new_analyzer {
 		    die "cannot replace future data, endpos=".
 			$p->{bufs}[-1]{endpos}." offset=$offset";
 
-		} elsif ( $p->{lppos} and 
+		} elsif ( $p->{lppos} and
 		    ( $p->{lppos} == IMP_MAXOFFSET or $offset < $p->{lppos} )) {
 		    # We got a replacement for data which earlier received an
 		    # IMP_(PRE)PASS. This should never happen (but can, if the

@@ -7,8 +7,8 @@ use Data::Dumper;
 $Data::Dumper::Sortkeys = 1;
 
 for (qw(
-    Net::Pcap 
-    Net::PcapWriter 
+    Net::Pcap
+    Net::PcapWriter
     Net::Inspect!0.24
     Net::Inspect::L4::TCP
     Net::Inspect::L3::IP
@@ -47,7 +47,7 @@ END { unlink($_) for (grep {$_} ($in,$out)) }
 (undef,$in)  = tempfile();
 (undef,$out) = tempfile();
 
-my $pw = Net::PcapWriter->new($in) 
+my $pw = Net::PcapWriter->new($in)
     or die "cannot create pcapfile $in";
 my $conn = $pw->tcp_conn('1.1.1.1',11,'2.2.2.2',22);
 $conn->write(0,'foo');
@@ -114,11 +114,3 @@ sub in {
     push @{ $self->{pkts}}, [ $dir,$data ] if $data ne '';
     return length($data);
 }
-
-
-
-
-
-
-
-

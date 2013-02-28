@@ -14,7 +14,7 @@ use File::Temp 'tempfile';
 sub INTERFACE { return (
     [
 	undef,             # all types/protocols are supported
-	[ 
+	[
 	    IMP_PREPASS,   # nothing gets ever changed or denied
 	    IMP_ACCTFIELD, # to account the session log file
 	]

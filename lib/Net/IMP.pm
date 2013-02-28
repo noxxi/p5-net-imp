@@ -96,11 +96,11 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 	if ( $basename =~s{\[(?:(\w+)\+)?(\d+)\]$}{} ) {
 	    (my $base,$basenum) = ($1,$2);
 	    if ( $base ) {
-		my $offset = $atoi{$base} 
+		my $offset = $atoi{$base}
 		    or croak("cannot find base type $base");
 		$basenum += $offset;
 	    }
-	} else {	
+	} else {
 	    $basenum = getservbyname($basename,'tcp' )
 		|| getservbyname($basename,'udp' )
 		or croak("cannot determine id for $basename");
@@ -148,7 +148,7 @@ Net::IMP - Inspection and Modification Protocol
 =head1 SYNOPSIS
 
     ######################################################################
-    # implementation of plugin 
+    # implementation of plugin
     ######################################################################
 
     package myIMP_Plugin;
@@ -194,11 +194,11 @@ Net::IMP - Inspection and Modification Protocol
     # (e.g. when we PASSed data with offset in the future)
     sub data {
 	my ($analyzer,$dir,$data,$offset,$datatype) = @_;
-	... 
+	...
     }
 
     ######################################################################
-    # use of plugin 
+    # use of plugin
     ######################################################################
     package main;
 
@@ -207,13 +207,13 @@ Net::IMP - Inspection and Modification Protocol
 	die "@err"
     }
 
-    # create single factory object for each configuration 
+    # create single factory object for each configuration
     my $factory = myIMP_Plugin->new_factory(%config);
 
     # enforce the interface the caller will use, e.g. the input protocol/types
     # and the supported output return types
-    $factory = $factory->set_interface([ 
-	IMP_DATA_STREAM, 
+    $factory = $factory->set_interface([
+	IMP_DATA_STREAM,
 	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
     ]) or die;
 
@@ -645,18 +645,18 @@ This call of IMP_DATA is equivalent to the following perl declaration:
     );
 
     # getservbyname('http','tcp') -> 80
-    use constant IMP_DATA_HTTP           
+    use constant IMP_DATA_HTTP
 	=> dualvar(80 << 16,'imp.data.http');
-    use constant IMP_DATA_HTTP_HEADER    
+    use constant IMP_DATA_HTTP_HEADER
 	=> dualvar((80 << 16) + 1,'imp.data.http.header');
-    use constant IMP_DATA_HTTP_BODY      
+    use constant IMP_DATA_HTTP_BODY
 	=> dualvar( -( (80 << 16) + 2 ), 'imp.data.http.body');
     ...
-    use constant IMP_DATA_HTTPRQ         
+    use constant IMP_DATA_HTTPRQ
 	=> dualvar((80 << 16) + 10,'imp.data.httprq');
-    use constant IMP_DATA_HTTPRQ_HEADER  
+    use constant IMP_DATA_HTTPRQ_HEADER
 	=> dualvar((80 << 16) + 10 + 1,'imp.data.httprq.header');
-    use constant IMP_DATA_HTTPRQ_CONTENT 
+    use constant IMP_DATA_HTTPRQ_CONTENT
 	=> dualvar( -( (80 << 16) + 10 + 2 ),'imp.data.httprq.content');
     ...
 

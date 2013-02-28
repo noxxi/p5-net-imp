@@ -22,9 +22,9 @@ Options:
   -M|--module mod[=arg]   use Net::IMP module for connections
   -L|--listen ip:port     listen on this socket
   -C|--connect target     and forward to this (ip:port,'socks4')
-  --http-only             only analyze traffic which looks like http (pass thru https)       
+  --http-only             only analyze traffic which looks like http (pass thru https)
   -d|--debug [pkg]        debug mode, if pkg given only packages matching pkg,
-                          e.g. 'ContentSecurityPolicy*'
+			  e.g. 'ContentSecurityPolicy*'
 
 USAGE
     exit(2);
@@ -161,7 +161,7 @@ for my $l (@listen) {
 		    close($cfh);
 		    return;
 		}
-		
+
 		if ( substr($socks4hdr,8) !~m{\0} ) {
 		    # username given, need more bytes
 		    $len++;
@@ -193,8 +193,8 @@ for my $l (@listen) {
 
 
 # debug info on USR1
-my $sw = AnyEvent->signal( 
-    signal => 'USR1', 
+my $sw = AnyEvent->signal(
+    signal => 'USR1',
     cb => sub {
 	debug("-------- active connections -------------");
 	$_->dump_state for(@active_connections);
@@ -203,20 +203,20 @@ my $sw = AnyEvent->signal(
 );
 
 # timer for expiring connections
-my $xpt = AnyEvent->timer( 
-    after => 5, 
-    interval => 5, 
+my $xpt = AnyEvent->timer(
+    after => 5,
+    interval => 5,
     cb => sub {
 	@active_connections = grep { $_ && $_->{expire} } @active_connections;
 	@active_connections or return;
-        debug("check timeouts for %d conn",0+@active_connections);
-        my $now = AnyEvent->now;
-        for (@active_connections) {
-            $_ or next;
+	debug("check timeouts for %d conn",0+@active_connections);
+	my $now = AnyEvent->now;
+	for (@active_connections) {
+	    $_ or next;
 	    $_->xdebug("expire=%d now=%d", $_->{expire},$now);
 	    $_->{expire} > $now and return;
-            $_->close;
-        }
+	    $_->close;
+	}
     }
 );
 
@@ -250,7 +250,7 @@ sub new {
     # read and write buffer
     # data are usually read into rbuf, then analyzed and later put into wbuf
     # if no Net::IMP filtering is done we can skip rbuf and write directly
-    # to wbuf. 
+    # to wbuf.
     # If wbuf is not empty the read handler on $from will be disabled
     # and a write handler on $to enabled until all data are written
     my @rbuf = ( '','' );
@@ -286,7 +286,7 @@ sub new {
     # bytes from initial read, used for http_only feature
     my $initial_read = '';
 
-    # defined read handler: 
+    # defined read handler:
     # read data into rbuf (or wbuf on some optimizations)
     # ---------------------------------------------------------------------
     for my $ft ([0,1],[1,0]) {
@@ -354,7 +354,7 @@ sub new {
 		    length($rbuf[$from]));
 	    }
 
-	    # error 
+	    # error
 	    if ( ! defined $n ) {
 		return if $!{EAGAIN};
 		$self->xdebug("error reading $from: $!");
@@ -375,21 +375,21 @@ sub new {
 		    $imp_topass[$from] != IMP_MAXOFFSET )) {
 		    if ( $imp_skipped[$from] ) {
 			$imp_skipped[$from] = 0;
-			$imp->data($from,'', 
+			$imp->data($from,'',
 			    $imp_passed[$from] + length($rbuf[$from]));
 		    } else {
 			$imp->data($from,'');
 		    }
 
 		    # connection might have been closed by Net::IMP callback
-		    @wcb or return; 
+		    @wcb or return;
 		}
 
 		if ( $eof[$to] ) {
 		    $self->xdebug("end of connection");
 		    &$close;
 		    return;
-		} elsif ( $wbuf[$to] eq '' 
+		} elsif ( $wbuf[$to] eq ''
 		    and $rbuf[$from] eq '' ) {
 		    $self->xdebug("shutdown $to,1");
 		    # write close $to if everything was written
@@ -409,14 +409,14 @@ sub new {
 		if ( $need_imp ) {
 		    if ( $imp_skipped[$from] ) {
 			$imp_skipped[$from] = 0;
-			$imp->data($from, substr($rbuf[$from],-$n), 
+			$imp->data($from, substr($rbuf[$from],-$n),
 			    $imp_passed[$from] + length($rbuf[$from]) -$n );
 		    } else {
 			$imp->data($from, substr($rbuf[$from],-$n));
 		    }
 
 		    # connection might have been closed by Net::IMP callback
-		    @wcb or return; 
+		    @wcb or return;
 		}
 
 		# prepass data?
@@ -435,7 +435,7 @@ sub new {
 		}
 
 		# write if new data and was not stalled
-		$wcb[$to](1) if ! $woff and $wbuf[$to] ne ''; 
+		$wcb[$to](1) if ! $woff and $wbuf[$to] ne '';
 	    }
 	};
     }
@@ -509,7 +509,7 @@ sub new {
 	    $self->xdebug( "$rtype @$rv");
 
 	    if ( $rtype == IMP_DENY ) {
-		# close connection 
+		# close connection
 		my ($dir,$msg) = @$rv;
 		# silent close if no msg
 		# FIXME use smthg better then just debug
@@ -539,15 +539,15 @@ sub new {
 			if $rtype == IMP_REPLACE;
 		    next;
 		}
-     
+
 		my $rl = length($rbuf[$dir]);
 		my $l = $rl>$diff ? $diff: $rl;
 		$self->xdebug("need to $rtype $l bytes");
-     
+
 		$imp_passed[$dir]  += $l;
 		$imp_topass[$dir]  = $offset;
 		$imp_prepass[$dir] = ($rtype == IMP_PREPASS);
-     
+
 		if ( $rtype == IMP_REPLACE ) {
 		    die "cannot replace not yet received data" if $rl<$diff;
 		    $self->xdebug("buf='%s' [0,$l]->'%s'",substr($rbuf[$dir],0,$l),$newdata);
@@ -555,20 +555,20 @@ sub new {
 		    $l = length($newdata);
 		    $rl = length($rbuf[$dir]); # FIXME: do I need this below?
 		}
-     
+
 		# forward data to wbuf of other side
 		if ($l) {
 		    my $to = $dir?0:1;
 		    push @tosend,$to if $wbuf[$to] eq '';
 		    $wbuf[$to] .= substr($rbuf[$dir],0,$l,'');
 		}
-     
+
 	    } elsif ( $rtype == IMP_TOSENDER ) {
 		my ($dir,$data) = @$rv;
 		# send data back to sender
 		push @tosend,$dir if $wbuf[$dir] eq '';
 		$wbuf[$dir] .= $data;
-     
+
 	    } else {
 		die "cannot handle Net::IMP rtype $rtype";
 	    }

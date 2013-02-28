@@ -73,7 +73,7 @@ sub new_analyzer {
     my $cb = delete $args{cb};
 
     my $analyzer = fields::new(ref($factory));
-    %$analyzer = ( 
+    %$analyzer = (
 	%$factory,          # common properties of all analyzers
 	%args,              # properties of this analyzer
 	analyzer_rv => [],  # reset queued return values
@@ -104,7 +104,7 @@ sub get_interface {
     my @local = $factory->INTERFACE;
 
     # return all supported interfaces if none are given
-    return @local if ! @_; 
+    return @local if ! @_;
 
     # find matching interfaces
     my @match;
@@ -130,7 +130,7 @@ sub get_interface {
 		    next;
 		}
 	    }
-		
+
 	    if ( $adaptor ) {
 		# make sure adaptor class exists
 		if ( ! eval "require $adaptor" ) {
@@ -169,7 +169,7 @@ sub poll_results {
 }
 
 sub data { die "needs to be implemented" }
-    
+
 
 ############################################################################
 # internal analyzer methods
@@ -253,7 +253,7 @@ your own validation function.
 
 =item $class->new_factory(%args)
 
-This will create a new factory class. 
+This will create a new factory class.
 C<%args> will be saved into C<$factory->{factory_args}> and later used when
 creating the analyzer.
 There is no need to re-implement this method.
@@ -267,35 +267,35 @@ L<Net::IMP>:
 
 =item $factory->get_interface(@caller_if) => @plugin_if
 
-This method provides an implementation of the C<get_interface> API function. 
+This method provides an implementation of the C<get_interface> API function.
 This implementation requires the implementation of a function C<INTERFACE> like
 this:
 
   sub INTERFACE { return (
-    [ 
+    [
       # require HTTP data types
       IMP_DATA_HTTP,          # input data types/protocols
       [ IMP_PASS, IMP_LOG ]   # output return types
     ],[
       # we can handle stream data too if we use a suitable adaptor
-      IMP_DATA_STREAM, 
+      IMP_DATA_STREAM,
       [ IMP_PASS, IMP_LOG ],
       'Net::IMP::Adaptor::STREAM2HTTP',
     ]
   )}
 
 There is no need to re-implement method C<get_interface>, but C<INTERFACE>
-should be implemented. 
+should be implemented.
 If your plugin can handle any data types you can set the type to C<undef>
 in the interface description.
 
 =item $factory->set_interface($want_if) => $new_factory
 
-This method provides an implementation of the C<set_interface> API function. 
+This method provides an implementation of the C<set_interface> API function.
 This implementation requires the implementation of C<INTERFACE> like described
 for C<get_interface>.
 There is no need to re-implement method C<set_interface>, but C<INTERFACE>
-should be implemented. 
+should be implemented.
 
 =item $factory->new_analyzer(%args)
 
@@ -347,7 +347,7 @@ instead.
 The following methods are implemented on analyzer objects as required by
 L<Net::IMP>:
 
-=over 4 
+=over 4
 
 =item $analyzer->set_callback($sub,@args)
 

@@ -126,9 +126,9 @@ my @tests = (
     },
     {
 	ignore_order => 1,
-	rules => [ 
+	rules => [
 	    { dir => 0, rxlen => 6, rx => qr/foo(?=bar)/ },
-	    { dir => 1, rxlen => 6, rx => qr/bar(?=foo)/ } 
+	    { dir => 1, rxlen => 6, rx => qr/bar(?=foo)/ }
 	],
 	in => [
 	    [ 0,'fo' ], [ 0,'o' ], [ 0,'ba' ], [ 0,'rff' ],
@@ -142,7 +142,7 @@ my @tests = (
     },
     {
 	ignore_order => 0,
-	rules => [ 
+	rules => [
 	    { dir => 0, rxlen => 20, rx => qr/a.*b/ },
 	    { dir => 1, rxlen => 20, rx => qr/C.*D/ },
 	    { dir => 0, rxlen => 20, rx => qr/e.*f/ },
