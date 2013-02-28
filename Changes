@@ -1,3 +1,4 @@
+- added new plugin Net::IMP::Example::LogServerCertificate
 0.60 2013/02/19
 - replace can now replace empty data, like to add data at eof
 0.59 2013/01/18

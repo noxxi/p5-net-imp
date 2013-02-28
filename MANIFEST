@@ -6,6 +6,7 @@ lib/Net/IMP/Filter.pm
 lib/Net/IMP/Pattern.pm
 lib/Net/IMP/ProtocolPinning.pm
 lib/Net/IMP/SessionLog.pm
+lib/Net/IMP/Example/LogServerCertificate.pm
 Makefile.PL
 MANIFEST			This list of files
 COPYRIGHT

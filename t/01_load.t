@@ -16,6 +16,7 @@ test: for (
     [ 'Net::IMP::SessionLog' ],
     [ 'Net::IMP::Cascade' ],
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
+    [ 'Net::IMP::Example::LogServerCertificate' ],
     ){
     my ($mod,@deps) = @$_;
     for (@deps) {

@@ -149,3 +149,8 @@ sub expire {
     my ($self,$expire) = @_;
     return $self->{expire} && $time>$self->{expire};
 }
+
+sub log {
+    my ($self,$level,$msg,$dir,$offset,$len) = @_;
+    print STDERR "[$level] $msg\n";
+}
