@@ -38,7 +38,12 @@ sub new_analyzer {
 sub data {
     my ($self,$dir,$data) = @_;
     return if $dir == 1; # should not happen
-    return if $data eq ''; # eof from client
+    if ( $data eq '' ) {
+	# eof
+	$self->run_callback([ IMP_PASS,0,IMP_MAXOFFSET ]);
+	return;
+    }
+
     $self->{line} .= $data;
 
     my @rv;
