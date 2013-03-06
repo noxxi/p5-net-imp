@@ -89,7 +89,7 @@ Net::Pcap::pcap_loop($pcap,-1,sub {
 },undef);
 
 my @expect = ([0,'foo'],[1,'bar'],[0,'pass']);
-is( Dumper(\@expect),Dumper(\@pkt),"pcap out ok");
+is( Dumper(\@pkt),Dumper(\@expect),"pcap out ok");
 
 
 package ConnHandler;

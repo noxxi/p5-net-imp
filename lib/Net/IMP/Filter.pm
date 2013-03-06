@@ -1,9 +1,10 @@
 use strict;
 use warnings;
 package Net::IMP::Filter;
-use fields qw(imp buf passed topass prepass skipped eof);
 use Net::IMP;
 use Net::IMP::Debug;
+use Hash::Util 'lock_ref_keys';
+use Scalar::Util 'weaken';
 
 
 ############################################################################
@@ -37,78 +38,112 @@ sub acctfld {
 #  Implementation
 ############################################################################
 sub new {
-    my ($class,$imp) = @_;
-    my $self = fields::new($class);
-    %$self = (
-	imp   => $imp,
-	buf     => ['',''],
-	passed  => [0,0], # offset of buf in input stream
-	topass  => [0,0], # may pass up to this offset
-	prepass => [0,0], # flag if topass means prepass, not pass
+    my ($class,$imp,%args) = @_;
+    my $self = lock_ref_keys( bless {
+	%args,
+	imp   => $imp,    # analyzer object
+	buf   => [
+	    # list of buffered data [ offset,buf,type ] per dir
+	    # buffers for same streaming type will be concatinated
+	    [ [0,'',0] ],
+	    [ [0,'',0] ],
+	],
+	pass    => [0,0], # may pass up to this offset
+	prepass => [0,0], # may prepass up to this offset
 	skipped => [0,0], # flag if last data got not send to analyzer
 			  # because of pass into future
-	eof     => 0,     # bitmask set inside output
-    );
-    $imp->set_callback(\&_imp_cb,$self) if $imp;
+	eof     => [0,0]  # flag if eof received
+    },(ref $class || $class) );
+
+    if ($imp) {
+	weaken( my $weak = $self );
+	$imp->set_callback(\&_imp_cb,$weak);
+    }
     return $self;
 }
 
 # data into analyzer
 sub in {
-    my ($self,$dir,$data) = @_;
-    return _out($self,$dir,$data) if ! $self->{imp};
+    my ($self,$dir,$data,$type) = @_;
+    $type ||= IMP_DATA_STREAM;
+    $DEBUG && debug("in($dir,$type) %d bytes",length($data));
 
-    $DEBUG && debug("in($dir) %d bytes",length($data));
+    $self->{eof}[$dir] = 1 if $data eq '';
+    return $self->out($dir,$data,$type) if ! $self->{imp};
 
-    # (pre)pass w/o analyzing (first)
-    if ( $self->{topass}[$dir] == IMP_MAXOFFSET ) {
-	$DEBUG && debug("can (pre)pass w/o analyzing (first) ".
-	    "topass=MAX passed=$self->{passed}[$dir] l=".
-	    length($data));
-	# (pre)pass in future
-	$self->{buf}[$dir] eq '' or die "buf should be empty";
-	$self->{passed}[$dir] += length($data);
-	_out($self,$dir,$data);
-	if ( $self->{prepass}[$dir] ) {
-	    $self->{imp}->data($dir,$data)
-	} elsif ( $data ne '' ) {
+    my $buf = $self->{buf}[$dir];
+
+    # (pre)pass as much as possible
+    for my $w (qw(pass prepass)) {
+	my $maxoff = $self->{$w}[$dir] or next;
+	@$buf == 1 and ! $buf->[0][2] or die "buf should be empty";
+	if ( $maxoff == IMP_MAXOFFSET
+	    or $maxoff > $buf->[-1][0] + length($data) ) {
+	    $DEBUG && debug("can $w everything");
+	    my $lastoff = $self->{skipped}[$dir] && $buf->[0][0];
+	    $buf->[0][0] += length($data);
+	    $self->out($dir,$data,$type);
+	    if ($w eq 'prepass') {
+		$self->{imp}->data($dir,$data,$lastoff,$type);
+		$self->{skipped}[$dir] = 0;
+	    } elsif ( $data eq '' and $maxoff != IMP_MAXOFFSET ) {
+		$self->{imp}->data($dir,$data,$lastoff,$type);
+		$self->{skipped}[$dir] = 0;
+	    } else {
+		$self->{skipped}[$dir] = 1;
+	    }
+	    return;
+	}
+
+	my $canfw = $maxoff - $buf->[-1][0];
+	if ( $type > 0 and $canfw != length($data)) {
+	    # packet types need to be handled as a single piece
+	    debug("partial $w for $type ignored");
+	    next;
+	}
+
+	$DEBUG && debug("can $w %d bytes of %d", $canfw, length($data));
+	my $fwd = substr($data,0,$canfw,'');
+	my $lastoff = $self->{skipped}[$dir] && $buf->[0][0];
+	$buf->[0][0] += length($fwd);
+	$self->{$w}[$dir] = 0; # no more (pre)pass
+	$self->out($dir,$fwd,$type);
+	if ($w eq 'prepass') {
+	    $self->{imp}->data($dir,$fwd,$lastoff,$type);
+	    $self->{skipped}[$dir] = 0;
+	} else {
 	    $self->{skipped}[$dir] = 1;
 	}
-	$data = '';
-	return; # everything passed
-    } elsif (( my $diff = $self->{topass}[$dir]-$self->{passed}[$dir] ) > 0 ) {
-	$DEBUG && debug("can (pre)pass w/o analyzing (first) diff=$diff ".
-	    "topass=$self->{topass}[$dir] passed=$self->{passed}[$dir] l=".
-	    length($data));
-	# (pre)pass in future
-	$self->{buf}[$dir] eq '' or die "buf should be empty";
-	my $out = substr($data,0,$diff,'');
-	$self->{passed}[$dir] += length($out);
-	_out($self,$dir,$out);
-	if ( $self->{prepass}[$dir] ) {
-	    $self->{imp}->data($dir,$out)
-	} elsif ( $out ne '' ) {
-	    $self->{skipped}[$dir] = 1;
-	}
-	return if $data eq ''; # everything passed
     }
 
-    # forward data or eof
-    $self->{buf}[$dir] .= $data;
-    if ( $self->{skipped}[$dir] ) {
-	$DEBUG && debug("fwd($dir) %d bytes offset=%d",
-	    length($data),$self->{passed}[$dir]);
-	$self->{imp}->data($dir,$data,$self->{passed}[$dir]);
+    # data left which need to be forwarded to analyzer
+    if ( ! $buf->[-1][2] ) {
+	# replace empty (untyped) buffer with new data
+	$buf->[-1][1] = $data;
+	$buf->[-1][2] = $type;
+    } elsif ( $type < 0 and $buf->[-1][2] == $type ) {
+	# streaming data of same type can be added to current buffer
+	$buf->[-1][1] .= $data;
     } else {
-	$DEBUG && debug("fwd($dir) %d bytes",length($data));
-	$self->{imp}->data($dir,$data);
+	# need new buffer
+	push @$buf,[ 
+	    $buf->[-1][0] + length($buf->[-1][1]),  # base = end of last
+	    $data,
+	    $type
+	];
     }
+
+    $DEBUG && debug("buffer and analyze %d bytes of data", length($data));
+    my $lastoff = $self->{skipped}[$dir] && $buf->[0][0];
+    $self->{imp}->data($dir,$data,$lastoff,$type);
+    $self->{skipped}[$dir] = 0;
 }
 
 # callback from analyzer
 sub _imp_cb {
     my $self = shift;
 
+    my @fwd;
     for my $rv (@_) {
 	my $rtype = shift(@$rv);
 	$DEBUG && debug("$rtype ".join(" ",map { "'$_'" } @$rv));
@@ -126,63 +161,118 @@ sub _imp_cb {
 	    my ($key,$value) = @$rv;
 	    $self->acctfld($key,$value);
 
-	} elsif ( $rtype ~~ [ IMP_PASS, IMP_PREPASS, IMP_REPLACE ] ) {
-	    my ($dir,$offset,$newdata) = @$rv;
-	    $DEBUG && debug("got %s %d|%d passed=%d inbuf=%d",
-		$rtype,$dir,$offset,$self->{passed}[$dir],
-		length($self->{buf}[$dir]));
+	} elsif ( $rtype ~~ [ IMP_PASS, IMP_PREPASS ] ) {
+	    my ($dir,$offset) = @$rv;
+	    $DEBUG && debug("got %s %d|%d", $rtype,$dir,$offset);
 
-	    my $fwd = length($self->{buf}[$dir]);
-	    if ( $offset != IMP_MAXOFFSET ) {
-		my $diff = $offset - $self->{passed}[$dir];
-		if ( $diff<0 ) {
-		    $DEBUG && debug("diff=$diff - $rtype for already passed data");
-		    # already passed
-		    die "cannot replace already passed data"
-			if $rtype == IMP_REPLACE;
-		    next;
+	    if ( $self->{pass}[$dir] == IMP_MAXOFFSET ) {
+		next; # cannot get better than previous pass
+	    } elsif ( $rtype == IMP_PASS ) {
+		if ( $offset == IMP_MAXOFFSET ) {
+		    $self->{pass}[$dir] = $offset;
+		    $self->{prepass}[$dir] = 0;
+		} elsif ( $offset > $self->{pass}[$dir] ) {
+		    $self->{pass}[$dir] = $offset;
+		    $self->{prepass}[$dir] = 0
+			if $offset >= $self->{prepass}[$dir];
+		} else {
+		    next; # not better than previous pass
 		}
 
-		my $rl = $fwd;
-		$fwd = $rl>$diff ? $diff: $rl;
-		$DEBUG && debug("need to $rtype $fwd bytes");
-		$self->{passed}[$dir]  += $fwd;
-
-		if ( $rtype == IMP_REPLACE ) {
-		    die "cannot replace not yet received data" if $rl<$diff;
-		    $DEBUG && debug("buf='%s' [0,$fwd]->'%s'",
-			substr($self->{buf}[$dir],0,$fwd),$newdata);
-		    substr($self->{buf}[$dir],0,$fwd,$newdata);
-		    $fwd = length($newdata);
-		}
-
+	    # IMP_PREPASS
+	    } elsif ( $offset == IMP_MAXOFFSET or ( 
+		$offset > $self->{pass}[$dir] and
+		$offset > $self->{prepass}[$dir] )) {
+		# update for prepass
+		$self->{prepass}[$dir] = $offset
 	    } else {
-		die "cannot replace future data" if $rtype == IMP_REPLACE;
-		$self->{passed}[$dir]  += $fwd;
+		# next; # no better than previous prepass
 	    }
 
-	    $self->{topass}[$dir]  = $offset;
-	    $self->{prepass}[$dir] = ($rtype == IMP_PREPASS);
+	    my $buf = $self->{buf}[$dir];
+	    my $end;
 
-	    # output accepted data
-	    _out($self,$dir,substr($self->{buf}[$dir],0,$fwd,'')) if $fwd;
+	    while ($buf->[0][2]) {
+		my $buf0 = shift(@$buf);
+		$end = $buf0->[0] + length($buf0->[1]);
+		if ( $offset == IMP_MAXOFFSET
+		    or $offset >= $end ) {
+		    $DEBUG && debug("pass complete buf");
+		    push @fwd, [ $dir, $buf0->[1] ];
+		    # keep dummy in buf
+		    if ( ! @$buf ) {
+			unshift @$buf,[ $buf0->[0] + length($buf0->[1]),'',0 ];
+			push @fwd,[$dir,''] if $self->{eof}[$dir]; # fwd eof
+			last;
+		    }
+		} elsif ( $offset <  $buf0->[0] ) {
+		    $DEBUG && debug("duplicate $rtype $offset ($buf0->[0])");
+		    unshift @$buf,$buf0;
+		    last;
+		} elsif ( $offset ==  $buf0->[0] ) {
+		    # at border, e.g. forward 0 bytes
+		    unshift @$buf,$buf0;
+		    last;
+		} elsif ( $buf0->[2] < 0 ) {
+		    # streaming type, can pass part of buf
+		    $DEBUG && debug("pass part of buf");
+		    push @fwd, [ 
+			$dir, 
+			substr($buf0->[1],0,$offset - $end,'')
+		    ];
+		    # put back with adjusted offset
+		    $buf0->[0] = $offset;
+		    unshift @$buf, $buf0;
+		    last;
+		} else {
+		    $DEBUG && debug(
+			"ignore partial $rtype for $buf0->[2] (offset=$offset,pos=$buf0->[0])");
+		    unshift @$buf, $buf0; # put back
+		    last;
+		}
+	    }
+
+	    if ( $offset != IMP_MAXOFFSET and $offset <= $end ) {
+		# limit reached, reset (pre)pass
+		$self->{ $rtype == IMP_PASS ? 'pass':'prepass' }[$dir] = 0;
+	    }
+
+	} elsif ( $rtype == IMP_REPLACE ) {
+	    my ($dir,$offset,$newdata) = @$rv;
+	    $DEBUG && debug("got %s %d|%d", $rtype,$dir,$offset);
+
+	    if ( $self->{pass}[$dir] or $self->{prepass}[$dir] ) {
+		# we are allowed to (pre)pass in future, so we cannot replace
+		die "cannot replace already passed data";
+	    }
+
+	    my $buf = $self->{buf}[$dir];
+	    my $buf0 = $buf->[0];
+	    my $eob = $buf0->[0] + length($buf0->[1]);
+	    if ( $eob < $offset ) {
+		die "replacement cannot span different types or packets";
+	    } elsif ( $eob == $offset ) {
+		# full replace
+		$DEBUG && debug("full replace");
+		push @fwd,[ $dir,$newdata ];
+		shift(@$buf);
+		push @$buf, [ $eob,'',0 ] if ! @$buf;
+	    } else {
+		die "no partial replacement for packet types allowed"
+		    if $buf0->[2]>0;
+		$DEBUG && debug("partial replace");
+		push @fwd,[ $dir,$newdata ];
+		substr( $buf0->[1],0,$offset - $buf0->[0],'');
+		$buf0->[0] = $offset;
+	    }
 
 	} else {
 	    die "cannot handle Net::IMP rtype $rtype";
 	}
     }
+    $self->out(@$_) for (@fwd);
 }
 
-sub _out {
-    my ($self,$dir,$data) = @_;
-    if ( $data eq '' and  3 == ($self->{eof} |= $dir ? 1:2)
-	and $self->{imp}) {
-	# finished connection, remove circular dependencies
-	$self->{imp}->set_callback(undef);
-	$self->{imp} = undef;
-    }
-    $self->out($dir,$data);
-}
 
 1;
 __END__

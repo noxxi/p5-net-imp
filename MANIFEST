@@ -24,3 +24,4 @@ t/05_imp-protopin.t
 t/06_cfg2str.t
 t/07_pcap_relay.t
 t/08_imp_data.t
+t/09_pattern_stream_vs_packet.t

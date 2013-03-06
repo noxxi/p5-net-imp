@@ -7,24 +7,32 @@ use Net::Inspect::Debug '%TRACE';
 use Net::Inspect::L2::Pcap;
 use Net::Inspect::L3::IP;
 use Net::Inspect::L4::TCP;
-use Net::PcapWriter;
+use Net::Inspect::L4::UDP;
+use Net::PcapWriter 0.7;
 use Net::Pcap qw(pcap_open_offline pcap_loop);
 use Net::IMP;
 use Net::IMP::Cascade;
 use Net::IMP::Debug;
 
 # interface we support in this program
-my $interface = [
-    IMP_DATA_STREAM,
-    [
+my @interface = (
+    [ IMP_DATA_STREAM, [
 	IMP_PASS,
 	IMP_PREPASS,
 	IMP_DENY,
 	IMP_REPLACE,
 	IMP_LOG,
 	IMP_ACCTFIELD,
-    ]
-];
+    ]],
+    [ IMP_DATA_PACKET, [
+	IMP_PASS,
+	IMP_PREPASS,
+	IMP_DENY,
+	IMP_REPLACE,
+	IMP_LOG,
+	IMP_ACCTFIELD,
+    ]],
+);
 
 
 sub usage {
@@ -84,19 +92,29 @@ if (@factory == 1) {
 	parts => \@factory
     ) or croak("cannot create factory from Net::IMP::Cascade");
 }
-$imp_factory->set_interface($interface) or
+@interface = $imp_factory->get_interface(@interface) or
     croak("cannot use modules - wrong interface");
 
-my $cw  = ConnWriter->new($pcap_out,$imp_factory);
-my $tcp = Net::Inspect::L4::TCP->new($cw);
-my $raw = Net::Inspect::L3::IP->new($tcp);
+my @l4;
+for my $if (@interface) {
+    if ( $if->[0] == IMP_DATA_STREAM ) {
+	# factory support stream interface
+	my $cw  = ConnWriter->new($pcap_out,$imp_factory);
+	push @l4,Net::Inspect::L4::TCP->new($cw);
+    } elsif ( $if->[0] == IMP_DATA_PACKET ) {
+	# factory support packet interface
+	my $pw  = PacketWriter->new($pcap_out,$imp_factory);
+	push @l4,Net::Inspect::L4::UDP->new($pw);
+    }
+}
+my $raw = Net::Inspect::L3::IP->new(@l4>1 ? \@l4:@l4);
 my $pc  = Net::Inspect::L2::Pcap->new($pcap_in,$raw);
 
 my $time;
 pcap_loop($pcap_in,-1,sub {
     my (undef,$hdr,$data) = @_;
     if ( ! $time || $hdr->{tv_sec}-$time>10 ) {
-	$tcp->expire($time = $hdr->{tv_sec});
+	$_->expire($time = $hdr->{tv_sec}) for(@l4);
     }
     return $pc->pktin($data,$hdr);
 },undef);
@@ -104,19 +122,11 @@ pcap_loop($pcap_in,-1,sub {
 
 package ConnWriter;
 use base 'Net::IMP::Filter';
-use fields qw(expire pcap);
+use Net::IMP;
 
 sub new {
     my ($class,$pcap,$imp) = @_;
-    my $self;
-    if ( UNIVERSAL::can($imp,'set_callback' )) {
-	# imp object, not factory
-	$self = $class->SUPER::new($imp);
-    } else {
-	$self = $class->SUPER::new();
-	$self->{imp} = $imp
-    }
-    $self->{pcap} = $pcap;
+    my $self = $class->SUPER::new($imp, pcap => $pcap, expire => 0);
     return $self;
 }
 
@@ -135,8 +145,57 @@ sub syn { return 1 }
 sub fatal { warn "fatal: $_[1]\n" }
 sub in {
     my ($self,$dir,$data,$eof) = @_;
-    $self->SUPER::in($dir,$data);
-    $self->SUPER::in($dir,'') if $eof and $data ne '';
+    $self->SUPER::in($dir,$data,IMP_DATA_STREAM) if $data ne '';
+    $self->SUPER::in($dir,'',IMP_DATA_STREAM) if $eof;
+    return length($data);
+}
+
+sub out {
+    my ($self,$dir,$data) = @_;
+    $self->{pcap}->write($dir,$data);
+}
+
+sub expire {
+    my ($self,$expire) = @_;
+    return $self->{expire} && $time>$self->{expire};
+}
+
+sub log {
+    my ($self,$level,$msg,$dir,$offset,$len) = @_;
+    print STDERR "[$level] $msg\n";
+}
+
+
+package PacketWriter;
+sub new {
+    my ($class,$pcap,$imp) = @_;
+    my $self = bless [ $imp,$pcap ],$class;
+    return $self;
+}
+
+sub pktin {
+    my ($self,$data,$meta) = @_;
+    my $imp = $self->[0] && $self->[0]->new_analyzer(meta => $meta);
+    my $pcap = $self->[1]->udp_conn(
+	$meta->{saddr}, $meta->{sport},
+	$meta->{daddr}, $meta->{dport},
+    );
+    return PacketWriter::Conn->new($pcap,$imp);
+}
+
+package PacketWriter::Conn;
+use base 'Net::IMP::Filter';
+use Net::IMP;
+
+sub new {
+    my ($class,$pcap,$imp) = @_;
+    return $class->SUPER::new($imp, pcap => $pcap, expire => 0 );
+}
+
+sub fatal { warn "fatal: $_[1]\n" }
+sub pktin {
+    my ($self,$dir,$data) = @_;
+    $self->SUPER::in($dir,$data,IMP_DATA_PACKET);
     return length($data);
 }
 
@@ -154,3 +213,4 @@ sub log {
     my ($self,$level,$msg,$dir,$offset,$len) = @_;
     print STDERR "[$level] $msg\n";
 }
+

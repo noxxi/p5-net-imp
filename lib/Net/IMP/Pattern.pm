@@ -10,6 +10,7 @@ use fields (
     'action',   # deny|reject|replace
     'actdata',  # data for action
     'buf',      # locally buffered data to match rx, <rxlen and per dir
+    'buftype',  # type of data in buffer
     'offset',   # buf[dir][0] is at offset in input stream dir
 );
 
@@ -27,7 +28,7 @@ sub INTERFACE {
 	$action eq 'replace' ? IMP_REPLACE :
 	! $action            ? IMP_DENY :
 	croak("invalid action $action");
-    return [ IMP_DATA_STREAM, \@rv ];
+    return [ undef, \@rv ];
 };
 
 sub validate_cfg {
@@ -47,7 +48,6 @@ sub validate_cfg {
 	} elsif ( '' =~ $rx ) {
 	    push @err,"rx should not match empty string"
 	}
-
     }
 
     if ( defined $string ) {
@@ -90,8 +90,9 @@ sub new_analyzer {
 	rxdir   => $fargs->{rxdir},
 	action  => $fargs->{action},
 	actdata => $fargs->{actdata},
-	buf => ['',''],  # per direction
-	offset => [0,0], # per direction
+	buf     => ['',''],  # per direction
+	buftype => [0,0],    # per direction
+	offset  => [0,0],    # per direction
     );
 
     if ( defined $self->{rxdir} ) {
@@ -109,16 +110,44 @@ sub new_analyzer {
 
 sub data {
     my Net::IMP::Pattern $self = shift;
-    my ($dir,$data) = @_;
+    my ($dir,$data,$offset,$type) = @_;
+    
+    $offset and die "cannot deal with gaps in data";
 
     # if this is the wrong dir return, we already issued PASS
     return if defined $self->{rxdir} and $dir != $self->{rxdir};
 
-    my $buf = $self->{buf}[$dir] .= $data;
-    $DEBUG && debug("got %d bytes on %d, bufsz=%d, rxlen=%d",
+    # accumulate results
+    my @rv;
+
+    my $buf;
+    if ( $type > 0 or $type != $self->{buftype}[$dir] ) {
+	# packet data or other streaming type
+	$buf = $data;
+	if ( $self->{buf}[$dir] ne '' ) {
+	    # pass previous buffer and reset it
+	    debug("reset buffer because type=$type, buftype=$self->{buftype}[$dir]");
+	    $self->{offset}[$dir] += length($self->{buf}[$dir]);
+	    $self->{buf}[$dir] = '';
+	    push @rv, [ IMP_PASS,$dir,$self->{offset}[$dir] ];
+	} elsif ( ! $self->{buftype}[$dir] and not $type > 0 ) {
+	    # initial streaming buf
+	    $self->{buf}[$dir] = $buf;
+	}
+	$self->{buftype}[$dir] = $type;
+    } else {
+	# streaming data, match can span multiple chunks
+	$buf = ( $self->{buf}[$dir] .= $data );
+    } 
+    
+    $DEBUG && debug("got %d bytes $type on %d, bufsz=%d, rxlen=%d",
 	length($data),$dir,length($buf),$self->{rxlen});
 
-    my @rv;
+    # for packet types we accumulate datain newdata and set changed if newdata
+    # are different from old
+    my $changed = 0;
+    my $newdata = '';
+
     while (1) {
 	if ( my ($good,$match) = $buf =~m{\A(.*?)($self->{rx})}s ) {
 	    # rx matched:
@@ -144,22 +173,26 @@ sub data {
 		# empty string, so we should be save here that rxlen>=match>0
 	    }
 
-	    # remove up to end of matched data from buf
-	    substr($buf,0,length($good)+length($match),'');
-
 	    if ( $good ne '' ) {
 		$DEBUG && debug("pass %d bytes in front of match",
 		    length($good));
 		# pass everything before the match and advance offset
-		push @rv, [
-		    IMP_PASS,
-		    $dir,
-		    $self->{offset}[$dir]+=length($good)
-		]
+		$self->{offset}[$dir]+=length($good);
+		if ( $type>0 ) {
+		    # keep good
+		    $newdata .= substr($buf,0,length($good),'');
+		} else {
+		    # pass good
+		    push @rv, [ IMP_PASS, $dir, $self->{offset}[$dir] ];
+		    substr($buf,0,length($good),'');
+		}
 	    }
+	    # remove match
+	    substr($buf,0,length($match),'');
+	    $self->{offset}[$dir] += length($match);
 
 	    if ( $match eq '' ) {
-		# match got resetted if >rxlen -> no action
+		# match got reset if >rxlen -> no action
 
 	    # handle the matched pattern according to action
 	    } elsif ( $self->{action} eq 'deny' ) {
@@ -169,23 +202,33 @@ sub data {
 
 	    } elsif ( $self->{action} eq 'reject' ) {
 		# forward nothing, send smthg back to sender
-		push @rv,[
-		    IMP_REPLACE,
-		    $dir,
-		    $self->{offset}[$dir] += length($match),
-		    ''
-		];
+		if ( $type > 0 ) {
+		    # no need to add nothing to $newdata :)
+		    $changed = 1;
+		} else {
+		    push @rv,[
+			IMP_REPLACE,
+			$dir,
+			$self->{offset}[$dir],
+			'',
+		    ];
+		}
 		push @rv,[ IMP_TOSENDER,$dir,$self->{actdata} ]
 		    if $self->{actdata} ne '';
 
 	    } elsif ( $self->{action} eq 'replace' ) {
 		# forward something else
-		push @rv,[
-		    IMP_REPLACE,
-		    $dir,
-		    $self->{offset}[$dir] += length($match),
-		    $self->{actdata}//''
-		];
+		if ( $type > 0 ) {
+		    $newdata .= $self->{actdata}//'';
+		    $changed = 1;
+		} else {
+		    push @rv,[
+			IMP_REPLACE,
+			$dir,
+			$self->{offset}[$dir],
+			$self->{actdata}//''
+		    ];
+		}
 
 	    } else {
 		# should not happen, because action was already checked
@@ -193,6 +236,12 @@ sub data {
 	    }
 
 	    last if $buf eq ''; # need more data
+
+	} elsif ( $type > 0 ) {
+	    # no matches across packets are allowed
+	    $self->{offset}[$dir] += length($buf);
+	    $newdata .= $buf if $changed;
+	    last;
 
 	} elsif ( (my $d = length($buf) - $self->{rxlen} + 1) > 0 ) {
 	    # rx did not match, but >=rxlen bytes in buf:
@@ -219,8 +268,21 @@ sub data {
 	}
     }
 
+    if ( $type > 0 ) {
+	if ( grep { IMP_DENY == $_->[0] } @rv ) {
+	    # leave deny alone
+	} elsif ( $changed ) {
+	    # replace whole packet
+	    push @rv, [ IMP_REPLACE,$dir,$self->{offset}[$dir],$newdata ];
+	} else {
+	    # pass whole packet
+	    push @rv, [ IMP_PASS,$dir,$self->{offset}[$dir] ];
+	}
+    }
+
     if ( @rv ) {
-	$self->{buf}[$dir] = $buf; # $buf got changed, put back
+	$self->{buf}[$dir] = $buf unless $type > 0; # $buf got changed, put back
+	debug("bufsize=".length($self->{buf}[$dir]));
 	$self->run_callback(@rv);
     } else {
 	$DEBUG && debug("need more data");
