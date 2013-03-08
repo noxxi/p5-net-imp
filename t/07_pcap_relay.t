@@ -8,7 +8,7 @@ $Data::Dumper::Sortkeys = 1;
 
 for (qw(
     Net::Pcap
-    Net::PcapWriter
+    Net::PcapWriter!0.7
     Net::Inspect!0.24
     Net::Inspect::L4::TCP
     Net::Inspect::L3::IP

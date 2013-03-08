@@ -80,15 +80,15 @@ sub new_analyzer {
 }
 
 sub data {
-    my ($anlyzer,$dir,$data) = @_;
-    if ( my $c = $anlyzer->{conn} ) {
+    my ($analyzer,$dir,$data) = @_;
+    if ( my $c = $analyzer->{conn} ) {
 	# pcap format
 	$c->write($dir,$data,[gettimeofday()]);
     } else {
 	# bin format
-	print {$anlyzer->{fh}} pack("NNcN/a*",gettimeofday(),$dir,$data);
+	print {$analyzer->{fh}} pack("NNcN/a*",gettimeofday(),$dir,$data);
     }
-    $anlyzer->run_callback;
+    $analyzer->run_callback;
 }
 
 1;
