@@ -15,7 +15,7 @@ use Carp 'croak';
 sub INTERFACE {
     return ([
 	IMP_DATA_STREAM,
-	[ IMP_PREPASS, IMP_LOG ]
+	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
     ])
 }
 
