@@ -273,7 +273,7 @@ sub new_analyzer {
 	    $endpos += length($data);
 	    $bufs->[-1]{data} .= $data;
 	    $bufs->[-1]{endpos} = $endpos;
-	    $bufs->[-1]{eof} = $eof;
+	    $bufs->[-1]{eof} = $eof && 1;
 	    $bufs->[-1]{rtype} ||= $rtype||0;
 	    $bufs->[-1]{dtype} = $dtype;
 
@@ -297,7 +297,6 @@ sub new_analyzer {
 
 	# if a new buffer was created we can now process the buffers
 	$process->($pi,$dir);
-
     };
 
     # This is the central part. It processes buffers for $dir in part $pi.
@@ -448,13 +447,20 @@ sub new_analyzer {
 		# IMP_MAXOFFSET, otherwise the analyzer was not interested in
 		# the end of data at all
 		if ( $buf->{eof} ) {
-		    if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+		    if ( $buf->{eof} > 1 ) {
+			$DEBUG && debug(
+			    "[$dir][$pi] ignoring repeated eof type=$buf->{dtype}");
+		    } elsif ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+			$DEBUG && debug("[$dir][$pi] pass eof type=$buf->{dtype}");
+			$buf->{eof}++;
 			$imp[$pi]->data(
 			    $dir,
 			    '',
 			    $p->{gap} ? $p->{fwapos}:0,
 			    $buf->{dtype},
 			)
+		    } else {
+			$DEBUG && debug("[$dir][$pi] do not pass eof type=$buf->{dtype}");
 		    }
 		}
 
@@ -557,6 +563,9 @@ sub new_analyzer {
 		    die "cannot handle type $fw->{rtype}"
 		}
 
+		# forward eof up
+		$wself->run_callback([IMP_PASS,$dir,IMP_MAXOFFSET]) if $fw->{eof};
+
 	    } else {
 		# we are not at the last part of the cascade
 		# transfer data into next part of cascade
@@ -582,7 +591,7 @@ sub new_analyzer {
 		    $start,
 		    $fw->{dtype},
 		    $fw->{rtype},
-		    $fw->{eof},
+		    $fw->{eof} && 1,
 		    $fw->{gbadjust},
 		    $fw->{gpadjust},
 		);
@@ -641,14 +650,22 @@ sub new_analyzer {
 	    # If the last buf contains eof, we need to send this to the
 	    # analyzer too, except if we got a free ride with IMP_PASS of
 	    # IMP_MAXOFFSET.
-	    if ( $bufs->[-1]{eof} ) {
-		if ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+	    if ( $bufs->[-1]{eof}  ) {
+		if ( $bufs->[-1]{eof} > 1 ) {
+		    $DEBUG && debug(
+			"[$dir][$pi] ignoring repeated eof type=$bufs->[-1]{dtype}");
+		} elsif ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
+		    $DEBUG && debug("[$dir][$pi] pass eof type=$bufs->[-1]{dtype}");
+		    $bufs->[-1]{eof}++;
 		    $imp[$pi]->data(
 			$dir,
 			'',
 			$p->{gap} ? $p->{fwapos}:0,
 			$bufs->[-1]{dtype}
 		    )
+		} else {
+		    $DEBUG && debug(
+			"[$dir][$pi] do not pass eof type=$bufs->[-1]{dtype}");
 		}
 	    }
 	}

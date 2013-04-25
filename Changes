@@ -1,3 +1,5 @@
+0.612 2013/04/25
+- Cascade - don't send eof twice
 0.611 2013/03/08
 - make test t/07_pcap_relay.t depend on Net::PcapWriter 0.7
 0.61 2013/03/06
