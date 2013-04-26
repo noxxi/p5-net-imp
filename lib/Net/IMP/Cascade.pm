@@ -563,9 +563,6 @@ sub new_analyzer {
 		    die "cannot handle type $fw->{rtype}"
 		}
 
-		# forward eof up
-		$wself->run_callback([IMP_PASS,$dir,IMP_MAXOFFSET]) if $fw->{eof};
-
 	    } else {
 		# we are not at the last part of the cascade
 		# transfer data into next part of cascade
