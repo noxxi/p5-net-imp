@@ -266,6 +266,8 @@ sub _imp_cb {
 		$buf0->[0] = $offset;
 	    }
 
+	} elsif ( $rtype ~~ [ IMP_PAUSE, IMP_CONTINUE ] ) {
+	    # ignore
 	} else {
 	    die "cannot handle Net::IMP rtype $rtype";
 	}

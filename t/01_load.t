@@ -5,7 +5,7 @@ use warnings;
 
 use Test::More;
 
-my @mods;
+my (@mods,@bin);
 test: for (
     [ 'Net::IMP' ],
     [ 'Net::IMP::Debug' ],
@@ -18,8 +18,10 @@ test: for (
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
     [ 'Net::IMP::Example::LogServerCertificate' ],
     [ 'Net::IMP::Example::IRCShout' ],
+    [ 'bin/imp-pcap-filter.pl' => 'Net::Inspect','Net::PcapWriter' ],
+    [ 'bin/imp-relay.pl' => 'Net::Inspect','Net::PcapWriter' ],
     ){
-    my ($mod,@deps) = @$_;
+    my ($name,@deps) = @$_;
     for (@deps) {
 	my ($dep,$want_version) = split('!');
 	if ( ! eval "require $dep" ) {
@@ -34,11 +36,19 @@ test: for (
 	    }
 	}
     }
-    push @mods,$mod;
+    if ( $name =~m{::} ) {
+	push @mods,$name;
+    } else {
+	push @bin,$name;
+    }
 }
 
-plan tests => 0+@mods;
+plan tests => @bin+@mods;
 for (@mods) {
     eval "use $_";
     cmp_ok( $@,'eq','', "loading $_" );
+}
+
+for(@bin) {
+    ok( system( $^X,'-Mblib','-cw',$_ ) == 0, "syntax check $_" );
 }

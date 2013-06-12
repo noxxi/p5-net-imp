@@ -546,7 +546,7 @@ sub new_analyzer {
 		#   "+$fw->{padjust}\n".$_dump_part->($dir));
 
 		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{rtype},$dir,".
-		    "$eob=$fw->{endpos}-adjust");
+		    "$eob=endpos($fw->{endpos})-gpa($fw->{gpadjust})+padj($fw->{padjust})");
 
 		if ( $eob < $global_lastpass[$dir]{pos}
 		    or $global_lastpass[$dir]{pos} == IMP_MAXOFFSET ) {
@@ -680,7 +680,13 @@ sub new_analyzer {
 	while ( my $rv = shift(@_)) {
 	    my $rtype = shift(@$rv);
 
-	    if ( $rtype ~~ [ IMP_DENY,IMP_DROP,IMP_ACCTFIELD ]) {
+	    if ( $rtype ~~ [ 
+		    IMP_DENY,
+		    IMP_DROP,
+		    IMP_ACCTFIELD,
+		    IMP_PAUSE,
+		    IMP_CONTINUE 
+		]) {
 		# these gets propagated directly up w/o changes
 		$DEBUG && debug("impcb[*][$pi] $rtype @$rv");
 		$wself->run_callback([$rtype,@$rv]);
@@ -1042,8 +1048,9 @@ Currently IMP_TOSENDER is not supported
 
 =head1 BUGS
 
-Don't know of any, but the feature and thus the code is way more complex than I
-originally hoped :(
+The feature and thus the code is way more complex than I originally hoped :(
+And it looks like, that there are some bugs in edge cases, so a rewrite
+is probably necessary.
 
 =head1 AUTHOR
 

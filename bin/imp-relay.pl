@@ -81,6 +81,8 @@ for my $l (@listen) {
 		IMP_TOSENDER,
 		IMP_LOG,
 		IMP_ACCTFIELD,
+		IMP_PAUSE,
+		IMP_CONTINUE,
 	    ],
 	]) or croak("cannot create Net::IMP factory for $mod");
     }
@@ -569,6 +571,18 @@ sub new {
 		push @tosend,$dir if $wbuf[$dir] eq '';
 		$wbuf[$dir] .= $data;
 
+	    } elsif ( $rtype == IMP_PAUSE ) {
+		# stop receiving data
+		my $from = shift;
+		undef $rwatch[$from];
+	    } elsif ( $rtype == IMP_CONTINUE ) {
+		# start receiving data again
+		my $from = shift;
+		$rwatch[$from] = AnyEvent->io(
+		    fh => $fh[$from],
+		    poll => 'r',
+		    cb => $rcb[$from]
+		);
 	    } else {
 		die "cannot handle Net::IMP rtype $rtype";
 	    }

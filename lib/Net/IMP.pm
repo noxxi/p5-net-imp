@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = 0.612;
+our $VERSION = '0.613';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -20,6 +20,8 @@ our @EXPORT = qw(
     IMP_DROP
     IMP_TOSENDER
     IMP_REPLACE
+    IMP_PAUSE
+    IMP_CONTINUE
     IMP_LOG
     IMP_PORT_OPEN
     IMP_PORT_CLOSE
@@ -61,6 +63,9 @@ use constant IMP_LOG          => dualvar(0x0000,"log");
 use constant IMP_PORT_OPEN    => dualvar(0x0001,"port_open");
 use constant IMP_PORT_CLOSE   => dualvar(0x0002,"port_close");
 use constant IMP_ACCTFIELD    => dualvar(0x0003,"acctfield");
+### flow control
+use constant IMP_PAUSE        => dualvar(0x0010,"pause");
+use constant IMP_CONTINUE     => dualvar(0x0011,"continue");
 ### keep data
 use constant IMP_PASS         => dualvar(0x1001,"pass");
 use constant IMP_PASS_PATTERN => dualvar(0x1002,"pass_pattern");
@@ -210,8 +215,8 @@ Net::IMP - Inspection and Modification Protocol
     # create single factory object for each configuration
     my $factory = myIMP_Plugin->new_factory(%config);
 
-    # enforce the interface the caller will use, e.g. the input protocol/types
-    # and the supported output return types
+    # enforce the interface the data provider will use, e.g. the input
+    # protocol/types and the supported output return types
     $factory = $factory->set_interface([
 	IMP_DATA_STREAM,
 	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
@@ -264,8 +269,8 @@ IMP is an asynchronous protocol, usually used together with callbacks.
 
 =item *
 
-Using the C<data> method, data from the input stream gets put into the
-analyzer.
+Using the C<data> method, the data provider (e.g. proxy, IDS,... ) feeds data
+from its input streams (i.e. from client or from server) into the analyzer.
 
 =item *
 
@@ -283,14 +288,23 @@ offset got used in the result and thus data up to this offset can be passed.
 
 =item *
 
-The results get usually propagated with a callback set with C<set_callback>.
-If no callback is set, results must be polled with the C<poll_results> method.
+The results get usually propagated back to the data provider using a callback
+set with C<set_callback>.
+If no callback is set, the data provider must poll the results with the
+C<poll_results> method.
 
 =back
 
 =head2 Usage of Terms
 
 =over 4
+
+=item Data Provider
+
+The process, which receives the input streams from client and server, feeds the
+analyzer, processes the results from the analyzer and forwards the resulting
+streams to server and client.
+Typical examples are proxies or Intrusion Detection Systems (IDS).
 
 =item Factory
 
@@ -300,13 +314,15 @@ The factory object is used to create analyzers with common properties.
 
 The analyzer is the object which does the analysis of the data within a
 specific context.
-It will be created by the factory for a new context.
+It will be created by the data provider for a new context by using the factory.
 
 =item Context
 
 The context is the environment where the analyzer executes.
 E.g. when analyzing TCP connections, a new context is created for each TCP
-connection.
+connection, usually providing meta information about source and destination of
+the connection.
+Setup of the context is done by the data provider.
 
 =item Interface
 
@@ -349,8 +365,8 @@ offset.
 All data up to but not including the pattern don't need to be forwarded to the
 analyzer.
 Because C<$regex> might be complex the analyzer has to specify how many
-octets the C<$regex> might match at most, so that the caller can adjust its
-buffer.
+octets the C<$regex> might match at most, so that the data provider can adjust
+its buffer.
 
 Because there might be data already on the way to the analyzer, the analyzer
 needs to check all incoming data without explicit offset if they match the
@@ -363,11 +379,12 @@ offset already) and resync at the specified offset.
 For better performance the analyzer should check any data it has already in the
 buffer if they already contain the pattern.
 In this case the issue can be dealt internally and there is no need to send
-this reply to the caller.
+this reply to the data provider.
 
-If the caller receives this reply, it should check all data it has still in the
-buffer (e.g. which were not passed) wether they contain the pattern.
-If the caller finds the pattern, it should call C<data> with an explicit
+If the data provider receives this result, it should check all data it has
+still in the buffer (e.g. which were not passed) wether they contain the
+pattern.
+If the data provider finds the pattern, it should call C<data> with an explicit
 offset, so that the analyzer can resynchronize the position in the data
 stream.
 
@@ -420,13 +437,28 @@ This might be used to reject data, e.g. replace them with nothing and send
 an error message back to the sender.
 This can be useful to reject single commands in SMTP, FTP...
 
+=item [ IMP_PAUSE,$dir ]
+
+This is a hint to the data provider to stop feeding data for C<$dir> into the
+analyzer until a matching C<IMP_CONTINUE> is received.
+This should be used, if the analyzer has enough data to process, but the
+processing will take some time (like with DNS lookups).
+The data provider then might stop receiving data by itself.
+While the data provider can ignore this result a feeding of too much data into
+the analyzer might result in out of memory situations.
+
+=item [ IMP_CONTINUE,$dir ]
+
+This signals the data provider, that the analyzer is able to process data
+again, e.g. will be called after a matching C<IMP_PAUSE>.
+
 =item [ IMP_LOG, $dir, $offset, $len, $level, $msg ]
 
 This contains a log message C<$msg> which is about data in direction C<$dir>
 starting with C<$offset> and C<$len> octets long.
 C<$level> might specify a log level like debug, info, warn... .
 
-The caller should just log the information in this case.
+The data provider should just log the information in this case.
 
 C<$level> is one of LOG_IMP_*, which are similar to syslog levels,
 e.g. IMP_LOG_DEBUG, IMP_LOG_INFO,...
@@ -436,8 +468,8 @@ These level constants can be imported with C<< use Net::IMP ':log' >>.
 
 Some protocols like FTP, SIP, H.323 dynamically allocate ports.
 These results detect when port allocation/destruction is done and should provide
-enough information for the caller to open/close the ports and track the data
-through additional analyzers.
+enough information for the data provider to open/close the ports and track the
+data through additional analyzers.
 
 TODO: details will be specified when this feature is needed.
 
@@ -479,9 +511,10 @@ This creates a new factory object which is later used to create the analyzer.
 C<%args> are used to describe the properties common for all analyzers created by
 the same factory.
 
-=item $factory->get_interface(@caller_if) => @plugin_if
+=item $factory->get_interface(@provider_if) => @plugin_if
 
-This gets the interfaces supported by the factory.
+This gets the interfaces supported by the factory and matches them with the
+interfaces supported by the data provider.
 Each interface consists of C<< [ $input_type, \@output_types ] >>, where
 
 =over 8
@@ -493,19 +526,20 @@ protocol type (like IMP_DATA_HTTP) which includes multiple data types.
 
 =item @output_types
 
-is a list of the return types, which are used by the interface, e.g. IMP_PASS,
-IMP_LOG,...
-if \@output_types is not given or an empty list, it will be assumed, that the
-caller supports any return types.
+is a list of the result types, which are used by the interface, e.g. IMP_PASS,
+IMP_LOG,... .
+If \@output_types inside the data providers interface C<@provider_if> is not
+given or if it is an empty list, it will be assumed, that the data provider
+supports any result types for the given C<$input_type>.
 
 =back
 
-If called without arguments the method will return all the interfaces supported
-by the factory.
-Only in this case an interface description with no data type/protocol
-might be returned, which means, that all data types/protocols are supported.
+If called without arguments, e.g. C<@provider_if> beeing empty, the method will
+return all the interfaces supported by the factory.
+Only in this case an interface description with no <$input_type>
+might be returned, which means, that all data types are supported.
 
-If called with a list of interfaces the caller supports, it will return the
+If called with a list of interfaces the data provider supports, it will return the
 subset of these interfaces, which are also supported by the plugin.
 
 =item $factory->set_interface($want_if) => $new_factory
@@ -614,9 +648,9 @@ See L<Net::IMP::Debug> for more information.
 =item * add more return types like IMP_PORT_*
 
 Specify IMP_PORT_* and have sample implementation which uses it.
-Should be used to inform caller, that inside that protocol it found dynamic
-port allocations (like for FTP data streams or SIP RTP streams) and that caller
-should track these connections too.
+Should be used to inform data provider, that inside that protocol it found
+dynamic port allocations (like for FTP data streams or SIP RTP streams) and
+that caller should track these connections too.
 
 =back
 

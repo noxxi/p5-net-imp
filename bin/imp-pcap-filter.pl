@@ -15,23 +15,19 @@ use Net::IMP::Cascade;
 use Net::IMP::Debug;
 
 # interface we support in this program
+my @rtypes = (
+    IMP_PASS,
+    IMP_PREPASS,
+    IMP_DENY,
+    IMP_REPLACE,
+    IMP_LOG,
+    IMP_ACCTFIELD,
+    IMP_PAUSE,
+    IMP_CONTINUE,
+);
 my @interface = (
-    [ IMP_DATA_STREAM, [
-	IMP_PASS,
-	IMP_PREPASS,
-	IMP_DENY,
-	IMP_REPLACE,
-	IMP_LOG,
-	IMP_ACCTFIELD,
-    ]],
-    [ IMP_DATA_PACKET, [
-	IMP_PASS,
-	IMP_PREPASS,
-	IMP_DENY,
-	IMP_REPLACE,
-	IMP_LOG,
-	IMP_ACCTFIELD,
-    ]],
+    [ IMP_DATA_STREAM, \@rtypes ],
+    [ IMP_DATA_PACKET, \@rtypes ],
 );
 
 

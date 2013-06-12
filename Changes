@@ -1,3 +1,8 @@
+0.613 2013/06/12
+- updated documentation for Net::IMP to clear up terminologie.
+  Introduce definition of 'data provider'.
+- added IMP_PAUSE and IMP_CONTINUE result types for flow control between
+  analyzer and data provider.
 0.612 2013/04/25
 - Cascade - don't send eof twice
 0.611 2013/03/08
