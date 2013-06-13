@@ -1,3 +1,5 @@
+0.614 2013/06/13
+- fix dependencies on modules in t/01_load.t
 0.613 2013/06/12
 - updated documentation for Net::IMP to clear up terminologie.
   Introduce definition of 'data provider'.

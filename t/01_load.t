@@ -18,8 +18,8 @@ test: for (
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
     [ 'Net::IMP::Example::LogServerCertificate' ],
     [ 'Net::IMP::Example::IRCShout' ],
-    [ 'bin/imp-pcap-filter.pl' => 'Net::Inspect','Net::PcapWriter' ],
-    [ 'bin/imp-relay.pl' => 'Net::Inspect','Net::PcapWriter' ],
+    [ 'bin/imp-pcap-filter.pl' => 'Net::Inspect','Net::PcapWriter!0.7' ],
+    [ 'bin/imp-relay.pl' => 'Net::Inspect','AnyEvent!6.12' ],
     ){
     my ($name,@deps) = @$_;
     for (@deps) {
