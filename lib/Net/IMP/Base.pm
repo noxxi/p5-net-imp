@@ -235,17 +235,18 @@ all L<Net::IMP> plugins.
 
 =item cfg2str|str2cfg
 
-These functions convert a C<%config> to or from a C<$string>.
+These functions are used to convert a C<%config> to or from a C<$string>.
 In this implementation the <$string> is a single line, encoded similar to the
 query_string in HTTP URLs.
 
 There is no need to re-implement this function unless you want to serialize the
 config into a different format.
 
-=item $class->validate_cfg(%config)
+=item $class->validate_cfg(%config) -> @errors
 
-This function verifies the config and thus should be reimplemented in each
-sub-package.
+This function is used to verify the config and thus should be re-implemented in
+each sub-package. It is expected to return a list of errors or an empty list if
+the config has no errors.
 
 The implementation in this package just complains, if there are any data left
 in C<%config> and thus should be called with any config data not handled by
@@ -253,10 +254,10 @@ your own validation function.
 
 =item $class->new_factory(%args)
 
-This will create a new factory class.
+This function is used to create a new factory class.
 C<%args> will be saved into C<$factory->{factory_args}> and later used when
 creating the analyzer.
-There is no need to re-implement this method.
+There is usually no need to re-implement this method.
 
 =back
 
