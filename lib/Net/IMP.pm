@@ -550,10 +550,10 @@ a different factory, which translates data types.
 
 If the interface is not supported it will return undef.
 
-=item $factory->new_analyzer(%args) => $analyzer|undef
+=item $factory->new_analyzer(%context) => $analyzer|undef
 
 Creates a new analyzer object.
-The details for C<%args> depend on the analyzed protocol and the requirements
+The details for C<%context> depend on the analyzed protocol and the requirements
 of the analyzer, but usually these are things like source and destination ip
 and port, URL, mime type etc.
 

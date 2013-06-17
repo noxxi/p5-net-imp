@@ -6,6 +6,7 @@ use Getopt::Long qw(:config posix_default bundling);
 use AnyEvent;
 use AnyEvent::Socket qw(tcp_server tcp_connect parse_hostport format_address);
 use Net::IMP;
+use Net::IMP::Cascade;
 use Net::IMP::Debug qw(:DEFAULT $DEBUG_RX);
 
 # get a chance to cleanup
@@ -15,7 +16,7 @@ sub usage {
     print STDERR <<USAGE;
 
 Relay which uses Net::IMP analyzers for inspection and modification of traffic
-$0 Options*  --listen ... --connect...
+$0 Options*  --listen ...[ -M|--module ... ]*  --connect...
 
 Options:
   -h|--help               show usage
@@ -30,14 +31,15 @@ USAGE
     exit(2);
 }
 
-my (@listen,@laddr,$module,@debug_pkg,$http_only);
+my (@listen,@laddr,@module,@debug_pkg,$http_only);
 GetOptions(
-    'M|module=s'  => \$module,
+    'M|module=s'  => \@module,
     'L|listen=s'  => \@laddr,
     'C|connect=s' => sub {
 	@laddr or die "specify listener first\n";
-	push @listen, [ $_[1],$module,@laddr ];
+	push @listen, [ $_[1],\@module,@laddr ];
 	@laddr = ();
+	@module = ();
     },
     'http-only'   => \$http_only,
     'd|debug:s'   => \@debug_pkg,
@@ -64,28 +66,38 @@ for my $l (@listen) {
     ($rhost,$rport) = parse_hostport($raddr) or die "invalid raddr $raddr"
 	if $raddr and $raddr ne 'socks4';
 
-    my $imp_factory;
-    if ($module and $module ne '=') {
-	my ($mod,$args) = $module =~m{^([a-z][\w:]*)(?:=(.*))?$}i
-	    or die "invalid module $module";
-	eval "require $mod" or die "cannot load $mod args=$args: $@";
-	my %args = $mod->str2cfg($args//'');
-	$imp_factory = $mod->new_factory(%args);
-	$imp_factory && $imp_factory->set_interface([
-	    IMP_DATA_STREAM,
-	    [
-		IMP_PASS,
-		IMP_PREPASS,
-		IMP_DENY,
-		IMP_REPLACE,
-		IMP_TOSENDER,
-		IMP_LOG,
-		IMP_ACCTFIELD,
-		IMP_PAUSE,
-		IMP_CONTINUE,
-	    ],
-	]) or croak("cannot create Net::IMP factory for $mod");
+    my @factory;
+    for my $mod (@$module) {
+	$mod eq '=' and next;
+	my ($class,$args) = $mod =~m{^([a-z][\w:]*)(?:=(.*))?$}i
+	    or die "invalid module $mod";
+	eval "require $class" or die "cannot load $class args=$args: $@";
+	my %args = $class->str2cfg($args//'');
+	if ( my @err = $class->validate_cfg(%args)) {
+	    die "bad args for $class: @err";
+	}
+	push @factory,$class->new_factory(%args);
     }
+
+    my $imp_factory = 
+	! @factory ? undef :
+	@factory == 1 ? $factory[0] :
+	Net::IMP::Cascade->new_factory( parts => \@factory );
+
+    $imp_factory && $imp_factory->set_interface([
+	IMP_DATA_STREAM,
+	[
+	    IMP_PASS,
+	    IMP_PREPASS,
+	    IMP_DENY,
+	    IMP_REPLACE,
+	    IMP_TOSENDER,
+	    IMP_LOG,
+	    IMP_ACCTFIELD,
+	    IMP_PAUSE,
+	    IMP_CONTINUE,
+	],
+    ]) or croak("cannot set interface for IMP factory");
 
     for my $laddr (@laddr) {
 	my ($lhost,$lport) = parse_hostport($laddr) or die "invalid laddr $laddr";
