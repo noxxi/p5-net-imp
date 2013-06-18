@@ -76,7 +76,7 @@ for my $l (@listen) {
 	if ( my @err = $class->validate_cfg(%args)) {
 	    die "bad args for $class: @err";
 	}
-	push @factory,$class->new_factory(%args);
+	push @factory,$class->new_factory(%args, eventlib => myEvent->new );
     }
 
     my $imp_factory = 
@@ -239,6 +239,57 @@ $SIG{PIPE} = 'IGNORE'; # catch EPIPE
 my $loopvar = AnyEvent->condvar;
 $loopvar->recv;
 exit;
+
+
+############################################################################
+# AnyEvent wrapper to privide Net::IMP::Remote etc with acccess to
+# IO events
+############################################################################
+package myEvent;
+sub new {  bless {},shift }
+{
+    my %watchr;
+    sub onread {
+	my ($self,$fh,$cb) = @_;
+	defined( my $fn = fileno($fh)) or die "invalid filehandle";
+	if ( $cb ) {
+	    $watchr{$fn} = AnyEvent->io( 
+		fh => $fh, 
+		cb => $cb, 
+		poll => 'r' 
+	    );
+	} else {
+	    undef $watchr{$fn};
+	}
+    }
+}
+
+{
+    my %watchw;
+    sub onwrite {
+	my ($self,$fh,$cb) = @_;
+	defined( my $fn = fileno($fh)) or die "invalid filehandle";
+	if ( $cb ) {
+	    $watchw{$fn} = AnyEvent->io( 
+		fh => $fh, 
+		cb => $cb, 
+		poll => 'w' 
+	    );
+	} else {
+	    undef $watchw{$fn};
+	}
+    }
+}
+
+sub now { return AnyEvent->now }
+sub timer {
+    my ($self,$after,$cb,$interval) = @_;
+    return AnyEvent->timer( 
+	after => $after, 
+	cb => $cb,
+	$interval ? ( interval => $interval ):()
+    );
+}
 
 
 ############################################################################
