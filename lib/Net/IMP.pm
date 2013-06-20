@@ -59,10 +59,10 @@ use constant IMP_DATA_PACKET  => dualvar(+1,'imp.data.packet');
 # pass and gets thus forwarded as the cause for the data
 
 ### information only
-use constant IMP_LOG          => dualvar(0x0000,"log");
-use constant IMP_PORT_OPEN    => dualvar(0x0001,"port_open");
-use constant IMP_PORT_CLOSE   => dualvar(0x0002,"port_close");
-use constant IMP_ACCTFIELD    => dualvar(0x0003,"acctfield");
+use constant IMP_LOG          => dualvar(0x0001,"log");
+use constant IMP_PORT_OPEN    => dualvar(0x0002,"port_open");
+use constant IMP_PORT_CLOSE   => dualvar(0x0003,"port_close");
+use constant IMP_ACCTFIELD    => dualvar(0x0004,"acctfield");
 ### flow control
 use constant IMP_PAUSE        => dualvar(0x0010,"pause");
 use constant IMP_CONTINUE     => dualvar(0x0011,"continue");

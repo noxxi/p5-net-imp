@@ -8,6 +8,7 @@ use AnyEvent::Socket qw(tcp_server tcp_connect parse_hostport format_address);
 use Net::IMP;
 use Net::IMP::Cascade;
 use Net::IMP::Debug qw(:DEFAULT $DEBUG_RX);
+use Carp;
 
 # get a chance to cleanup
 $SIG{TERM} = $SIG{INT} = sub { exit(0) };
@@ -37,7 +38,7 @@ GetOptions(
     'L|listen=s'  => \@laddr,
     'C|connect=s' => sub {
 	@laddr or die "specify listener first\n";
-	push @listen, [ $_[1],\@module,@laddr ];
+	push @listen, [ $_[1], [@module] ,@laddr ];
 	@laddr = ();
 	@module = ();
     },
@@ -62,8 +63,8 @@ my @active_connections;
 for my $l (@listen) {
     my ($raddr,$module,@laddr) = @$l;
 
-    my ($rhost,$rport);
-    ($rhost,$rport) = parse_hostport($raddr) or die "invalid raddr $raddr"
+    my ($shost,$sport);
+    ($shost,$sport) = parse_hostport($raddr) or die "invalid raddr $raddr"
 	if $raddr and $raddr ne 'socks4';
 
     my @factory;
@@ -76,6 +77,7 @@ for my $l (@listen) {
 	if ( my @err = $class->validate_cfg(%args)) {
 	    die "bad args for $class: @err";
 	}
+	debug("new factory $class");
 	push @factory,$class->new_factory(%args, eventlib => myEvent->new );
     }
 
@@ -84,20 +86,21 @@ for my $l (@listen) {
 	@factory == 1 ? $factory[0] :
 	Net::IMP::Cascade->new_factory( parts => \@factory );
 
-    $imp_factory && $imp_factory->set_interface([
-	IMP_DATA_STREAM,
-	[
-	    IMP_PASS,
-	    IMP_PREPASS,
-	    IMP_DENY,
-	    IMP_REPLACE,
-	    IMP_TOSENDER,
-	    IMP_LOG,
-	    IMP_ACCTFIELD,
-	    IMP_PAUSE,
-	    IMP_CONTINUE,
-	],
-    ]) or croak("cannot set interface for IMP factory");
+    croak("cannot set interface for IMP factory") if $imp_factory && 
+	! $imp_factory->set_interface([
+	    IMP_DATA_STREAM,
+	    [
+		IMP_PASS,
+		IMP_PREPASS,
+		IMP_DENY,
+		IMP_REPLACE,
+		IMP_TOSENDER,
+		IMP_LOG,
+		IMP_ACCTFIELD,
+		IMP_PAUSE,
+		IMP_CONTINUE,
+	    ],
+	]);
 
     for my $laddr (@laddr) {
 	my ($lhost,$lport) = parse_hostport($laddr) or die "invalid laddr $laddr";
@@ -105,11 +108,11 @@ for my $l (@listen) {
 
 	my $fwd = sub {
 	    my ($cfh,$chost,$cport,$reply) = @_;
-	    #debug("attempting connect to $rhost,$rport");
-	    tcp_connect($rhost,$rport,sub {
+	    #debug("attempting connect to $shost,$sport");
+	    tcp_connect($shost,$sport,sub {
 		my $sfh = shift;
 
-		#debug("connect to $rhost,$rport succeeded");
+		#debug("connect to $shost,$sport succeeded");
 		if ( $reply ) {
 		    if ( syswrite($cfh,$reply) != length($reply)) {
 			# should not block on such few bytes, assume error
@@ -119,11 +122,13 @@ for my $l (@listen) {
 		    }
 		}
 
+		my $saddr = format_address((AnyEvent::Socket::unpack_sockaddr(getpeername($sfh)))[1]);
+		my $laddr = format_address((AnyEvent::Socket::unpack_sockaddr(getsockname($cfh)))[1]);
 		my $imp = $imp_factory && $imp_factory->new_analyzer( meta => {
 		    app => 'imp_proxy',
 		    caddr => $chost, cport => $cport,
-		    raddr => $rhost, rport => $rport,
-		    laddr => $lhost, lport => $lport,
+		    saddr => $saddr, sport => $sport,
+		    laddr => $laddr, lport => $lport,
 		});
 		push @active_connections, Connection->new($cfh,$sfh,$imp);
 	    });
@@ -132,9 +137,9 @@ for my $l (@listen) {
 	my $fwd_transp = sub {
 	    my ($cfh,$chost,$cport) = @_;
 	    # transparent, get target with getsockname
-	    ($rport,$rhost) = AnyEvent::Socket::unpack_sockaddr(getsockname($cfh));
-	    $rhost = format_address($rhost);
-	    if ( $rhost eq $lhost and $rport == $lport ) {
+	    ($sport,$shost) = AnyEvent::Socket::unpack_sockaddr(getsockname($cfh));
+	    $shost = format_address($shost);
+	    if ( $shost eq $lhost and $sport == $lport ) {
 		# not transparent
 		debug("attempt to connect to transparent socket non-transparently");
 		close($cfh);
@@ -169,7 +174,7 @@ for my $l (@listen) {
 
 		# found
 		$iow = $iot = undef;
-		(my $proto, my $typ,$rport,$rhost) = unpack('CCna4',$socks4hdr);
+		(my $proto, my $typ,$sport,$shost) = unpack('CCna4',$socks4hdr);
 		if ( $proto != 4 or $typ != 1 ) {
 		    debug("bad sockshdr: proto=$proto, typ=$typ");
 		    close($cfh);
@@ -183,9 +188,9 @@ for my $l (@listen) {
 		    return;
 		}
 
-		my $reply = pack('CCna4',0,90,$rport,$rhost);
-		$rhost = format_address($rhost);
-		debug("socks4 fwd to $rhost,$rport");
+		my $reply = pack('CCna4',0,90,$sport,$shost);
+		$shost = format_address($shost);
+		debug("socks4 fwd to $shost,$sport");
 
 		$fwd->($cfh,$chost,$cport,$reply);
 	    };
@@ -343,10 +348,10 @@ sub new {
     lock_keys(%$self);
 
     # Net::IMP specific
-    my @imp_passed  = (0,0);  # offset of rbuf[0] in stream
-    my @imp_topass  = (0,0);  # can pass up to this offset
-    my @imp_prepass = (0,0);  # flag if data needs to prepass, not pass
-    my @imp_skipped = (0,0);  # flag if data got not send to imp because of pass into future
+    my @imp_passed    = (0,0);  # offset of rbuf[0] in stream
+    my @imp_topass    = (0,0);  # can pass up to this offset
+    my @imp_toprepass = (0,0);  # can prepass up to this offset
+    my @imp_skipped   = (0,0);  # flag if data got not send to imp because of pass into future
 
     # bytes from initial read, used for http_only feature
     my $initial_read = '';
@@ -401,12 +406,13 @@ sub new {
 	    if ( ! $imp ) {
 		# no analysis, direct read into wbuf
 		$n||= sysread($fh[$from],$wbuf[$to],READSZ,$woff)
-	    } elsif ( ( my $diff = $imp_topass[$from]-$imp_passed[$from] )>0 ) {
-		$self->xdebug("can pass $diff w/o analyzing");
+	    } elsif ( !$n and ( my $sz = ( $imp_topass[$from] == IMP_MAXOFFSET ) 
+		? READSZ 
+		: $imp_topass[$from]-$imp_passed[$from] ) > 0 ) {
+		$self->xdebug("can pass $sz w/o analyzing");
 		# no analysis because of pass in future, read directly into wbuf
 		$rbuf[$from] eq '' or die "rbuf[$from] should be empty";
-		$n and die "should not be set from initial_data";
-		my $sz = $diff>READSZ ? READSZ:$diff;
+		$sz = READSZ if $sz>READSZ;
 		$n = sysread($fh[$from],$wbuf[$to],$sz,$woff);
 		if ($n) {
 		    $imp_skipped[$from] = 1;
@@ -436,7 +442,6 @@ sub new {
 
 		# send eof to analyzer if it it interested in the data
 		if ( $need_imp and (
-		    $imp_prepass[$from] or
 		    $imp_topass[$from] != IMP_MAXOFFSET )) {
 		    if ( $imp_skipped[$from] ) {
 			$imp_skipped[$from] = 0;
@@ -485,17 +490,24 @@ sub new {
 		}
 
 		# prepass data?
-		if ( $imp_prepass[$from] ) {
-		    my $diff = $imp_topass[$from] - $imp_passed[$from];
+		if ( $imp_toprepass[$from] == IMP_MAXOFFSET ) {
+		    $imp_passed[$from] += length($rbuf[$from]);
+		    $wbuf[$to] .= $rbuf[$from];
+		    $rbuf[$from] = '';
+		} elsif ( $imp_toprepass[$from] ) {
+		    my $diff = $imp_toprepass[$from] - $imp_passed[$from];
 		    if ($diff>0) {
 			# smthg to prepass
 			my $l = length($rbuf[$from]);
-			$l = $diff if $diff<$l;
+			if ( $diff<=$l ) {
+			    $l = $diff; # can pass less/eq than I have
+			    $imp_toprepass[$from] = 0;
+			}
 			$imp_passed[$from] += $l;
 			$wbuf[$to] .= substr($rbuf[$from],0,$l,'');
 		    } else {
 			# reset prepass, because it's done
-			$imp_prepass[$from] = 0;
+			$imp_toprepass[$from] = 0;
 		    }
 		}
 
@@ -592,40 +604,66 @@ sub new {
 		# FIXME use smthg better then just debug
 		$self->xdebug("accounting $key=$value");
 
-	    } elsif ( $rtype ~~ [ IMP_PASS, IMP_PREPASS, IMP_REPLACE ] ) {
-		my ($dir,$offset,$newdata) = @$rv;
+	    } elsif ( $rtype ~~ [ IMP_PASS, IMP_PREPASS ] ) {
+		my ($dir,$offset) = @$rv;
 		$self->xdebug("got $rtype $dir|$offset passed=$imp_passed[$dir]");
 
-		my $diff = $offset - $imp_passed[$dir];
-		if ( $diff<0 ) {
-		    $self->xdebug("diff=$diff - $rtype for already passed data");
-		    # already passed
-		    die "cannot replace already passed data"
-			if $rtype == IMP_REPLACE;
-		    next;
+		my $len = length($rbuf[$dir]);  # how much to (pre)pass
+		if ( $offset == IMP_MAXOFFSET ) {
+		    if ( $imp_topass[$dir] == IMP_MAXOFFSET ) {
+			next; # no change
+		    } elsif ( $rtype == IMP_PASS ) {
+			# extend topass
+			$imp_topass[$dir] = IMP_MAXOFFSET;
+		    } else {
+			# extend toprepass
+			$imp_toprepass[$dir] = IMP_MAXOFFSET;
+		    }
+		} else {
+		    my $diff = $offset - $imp_passed[$dir];
+		    if ( $diff < 0 ) {
+			# already passed
+			$self->xdebug("diff=$diff - $rtype for already passed data");
+			next;
+		    } elsif ( $diff>$len ) {
+			$len = $diff
+		    }
+		    if ( $rtype == IMP_PASS ) {
+			$imp_topass[$dir] = $offset;
+		    } elsif ( $imp_topass[$dir] < $offset ) {
+			$imp_toprepass[$dir] = $offset;
+		    }
 		}
 
-		my $rl = length($rbuf[$dir]);
-		my $l = $rl>$diff ? $diff: $rl;
-		$self->xdebug("need to $rtype $l bytes");
+		$self->xdebug("need to $rtype $len bytes");
 
-		$imp_passed[$dir]  += $l;
-		$imp_topass[$dir]  = $offset;
-		$imp_prepass[$dir] = ($rtype == IMP_PREPASS);
-
-		if ( $rtype == IMP_REPLACE ) {
-		    die "cannot replace not yet received data" if $rl<$diff;
-		    $self->xdebug("buf='%s' [0,$l]->'%s'",substr($rbuf[$dir],0,$l),$newdata);
-		    substr($rbuf[$dir],0,$l,$newdata);
-		    $l = length($newdata);
-		    $rl = length($rbuf[$dir]); # FIXME: do I need this below?
-		}
+		$imp_passed[$dir]  += $len;
 
 		# forward data to wbuf of other side
-		if ($l) {
+		if ($len) {
 		    my $to = $dir?0:1;
 		    push @tosend,$to if $wbuf[$to] eq '';
-		    $wbuf[$to] .= substr($rbuf[$dir],0,$l,'');
+		    $wbuf[$to] .= substr($rbuf[$dir],0,$len,'');
+		}
+
+	    } elsif ( $rtype == IMP_REPLACE ) {
+		my ($dir,$offset,$newdata) = @$rv;
+		die "cannot replace future data" if $offset == IMP_MAXOFFSET;
+		my $diff = $offset - $imp_passed[$dir];
+		die "cannot replace already passed data" if $diff<0;
+		my $len = length($rbuf[$dir]);
+		die "cannot replace future data" if $diff>$len;
+
+		$self->xdebug("buf='%s' [0,$len]->'%s'",substr($rbuf[$dir],0,$len),$newdata);
+		substr($rbuf[$dir],0,$len,$newdata);
+		$imp_passed[$dir]  += $len;
+		$len = length($newdata);
+
+		# forward data to wbuf of other side
+		if ($len) {
+		    my $to = $dir?0:1;
+		    push @tosend,$to if $wbuf[$to] eq '';
+		    $wbuf[$to] .= substr($rbuf[$dir],0,$len,'');
 		}
 
 	    } elsif ( $rtype == IMP_TOSENDER ) {
