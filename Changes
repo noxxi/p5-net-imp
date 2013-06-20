@@ -1,3 +1,8 @@
+0.615 2013/06/21
+- various bug fixes and enhancements imp-relay
+- defined standard interface where plugins can integrate into data providers
+  event loop (e.g. asynchronous dns lookups..) and integrate it into imp-relay
+- various documentation updates
 0.614 2013/06/13
 - fix dependencies on modules in t/01_load.t
 0.613 2013/06/12
