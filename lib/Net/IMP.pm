@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.615';
+our $VERSION = '0.616';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -41,7 +41,7 @@ my @log_levels = qw(
     IMP_LOG_ALERT
     IMP_LOG_EMERG
 );
-our @EXPORT_OK = (@log_levels, 'IMP_DATA');
+our @EXPORT_OK = (@log_levels, 'IMP_DATA','IMP_DATA_TYPES');
 our %EXPORT_TAGS = ( log => \@log_levels );
 
 # data types/protocols
@@ -94,7 +94,12 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 
 # helper function to define new IMP_DATA_* types for protocols
 {
-    my (%atoi,%itoa);
+    my @dualvars = ( IMP_DATA_STREAM, IMP_DATA_PACKET );
+    sub IMP_DATA_TYPES { return @dualvars }
+
+    my %atoi = map {( "$_" => $_+0 )} @dualvars;
+    my %itoa = map {( $_+0 => "$_" )} @dualvars;
+
     sub IMP_DATA {
 	my ($basename,@def) = @_;
 	my $basenum;
@@ -135,10 +140,12 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
 	    no strict 'refs';
 	    my $var = dualvar($lnum,$string);
 	    *{ "${pkg}::$const" } = sub () { $var };
+	    push @dualvars, $var;
 	}
 
 	return @const;
     }
+
 }
 
 
@@ -693,6 +700,9 @@ This call of IMP_DATA is equivalent to the following perl declaration:
     use constant IMP_DATA_HTTPRQ_CONTENT
 	=> dualvar( -( (80 << 16) + 10 + 2 ),'imp.data.httprq.content');
     ...
+
+The function C<IMP_DATA_TYPES> returns all known types, e.g. the primary types
+C<IMP_DATA_STREAM> and C<IMP_DATA_PACKET> and all types created with IMP_DATA.
 
 =head1 AUTHOR
 
