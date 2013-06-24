@@ -123,7 +123,7 @@ sub get_interface {
 		# caller will accept any return types
 	    } else {
 		# any local return types from not in out?
-		my %lout = map { $_ => 1 } @$lout;
+		my %lout = map { $_ => 1 } ( @$lout, IMP_FATAL );
 		delete @lout{@$out};
 		if ( %lout ) {
 		    # caller does not support all return types

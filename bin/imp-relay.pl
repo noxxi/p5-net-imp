@@ -99,6 +99,7 @@ for my $l (@listen) {
 		IMP_ACCTFIELD,
 		IMP_PAUSE,
 		IMP_CONTINUE,
+		IMP_FATAL,
 	    ],
 	]);
 
@@ -591,6 +592,13 @@ sub new {
 		# silent close if no msg
 		# FIXME use smthg better then just debug
 		$self->xdebug("connection denied: dir=$dir '$msg'") if $msg;
+		&$close;
+		return;
+
+	    } elsif ( $rtype == IMP_FATAL ) {
+		my $reason = shift;
+		# FIXME use smthg better then just debug
+		$self->xdebug("fatal error from analyzer: $reason");
 		&$close;
 		return;
 

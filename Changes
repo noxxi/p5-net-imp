@@ -1,3 +1,6 @@
+0.617 2013/06/24
+- added IMP_FATAL return value to let analyzer propagate internal problems.
+  Added support in bin/* data providers
 0.616 2013/06/21
 - added IMP_DATA_TYPES function to Net::IMP to get all registered data types
 0.615 2013/06/20

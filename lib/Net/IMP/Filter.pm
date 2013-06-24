@@ -22,6 +22,12 @@ sub deny {
     return;
 }
 
+sub fatal {
+    my ($self,$msg) = @_;
+    $DEBUG && debug("fatal $msg");
+    return;
+}
+
 sub log {
     my ($self,$level,$msg,$dir,$offset,$len) = @_;
     $DEBUG && debug("log [$level] $msg");
@@ -52,7 +58,8 @@ sub new {
 	prepass => [0,0], # may prepass up to this offset
 	skipped => [0,0], # flag if last data got not send to analyzer
 			  # because of pass into future
-	eof     => [0,0]  # flag if eof received
+	eof     => [0,0], # flag if eof received
+	dead    => 0,     # set if deny|fatal received
     },(ref $class || $class) );
 
     if ($imp) {
@@ -65,6 +72,8 @@ sub new {
 # data into analyzer
 sub in {
     my ($self,$dir,$data,$type) = @_;
+    $self->{dead} and return;
+
     $type ||= IMP_DATA_STREAM;
     $DEBUG && debug("in($dir,$type) %d bytes",length($data));
 
@@ -142,6 +151,7 @@ sub in {
 # callback from analyzer
 sub _imp_cb {
     my $self = shift;
+    $self->{dead} and return;
 
     my @fwd;
     for my $rv (@_) {
@@ -151,6 +161,12 @@ sub _imp_cb {
 	if ( $rtype == IMP_DENY ) {
 	    my ($dir,$msg) = @$rv;
 	    $self->deny($msg,$dir);
+	    $self->{dead} = 1;
+	    return;
+	} elsif ( $rtype == IMP_FATAL ) {
+	    my $reason = shift;
+	    $self->fatal($reason);
+	    $self->{dead} = 1;
 	    return;
 
 	} elsif ( $rtype == IMP_LOG ) {
@@ -318,6 +334,10 @@ this gets called for output of data
 =item deny($self,$msg,$dir)
 
 this gets called on IMP_DENY
+
+=item fatal($self,$msg)
+
+this gets called on IMP_FATAL
 
 =item log($self,$level,$msg,$dir,$offset,$len)
 

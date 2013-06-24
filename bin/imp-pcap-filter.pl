@@ -24,6 +24,7 @@ my @rtypes = (
     IMP_ACCTFIELD,
     IMP_PAUSE,
     IMP_CONTINUE,
+    IMP_FATAL,
 );
 my @interface = (
     [ IMP_DATA_STREAM, \@rtypes ],

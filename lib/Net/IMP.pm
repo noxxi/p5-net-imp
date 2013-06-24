@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.616';
+our $VERSION = '0.617';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -26,6 +26,7 @@ our @EXPORT = qw(
     IMP_PORT_OPEN
     IMP_PORT_CLOSE
     IMP_ACCTFIELD
+    IMP_FATAL
     IMP_MAXOFFSET
     IMP_DATA_STREAM
     IMP_DATA_PACKET
@@ -76,6 +77,7 @@ use constant IMP_REPLACE      => dualvar(0x1011,"replace");
 ### affect whole connection
 use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
+use constant IMP_FATAL        => dualvar(0x1102,"fatal");
 
 # marker for (pre)pass to Infinite for IMP_PASS, IMP_PREPASS
 use constant IMP_MAXOFFSET    => -1;
@@ -436,6 +438,15 @@ the connection with RST).
 Deny any more data on this context and close the context.
 The preferred way for closing the context is to be not visible to the client
 (e.g just drop any more packets of an UDP connection).
+
+=item [ IMP_FATAL, $reason ]
+
+Fatal problem inside the analyzer.
+While this will probably cause the analyzer to be destroyed and the connection
+to be denied it is different from IMP_DROP or IMP_DENY in that it is not
+triggered by the analyzed data, but by internals of the analyzer which make a
+continuation of normal operations impossible.
+All data providers must be able to deal with this return value.
 
 =item [ IMP_TOSENDER, $dir, $data ]
 
