@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.617';
+our $VERSION = '0.618';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -20,6 +20,7 @@ our @EXPORT = qw(
     IMP_DROP
     IMP_TOSENDER
     IMP_REPLACE
+    IMP_REPLACE_LATER
     IMP_PAUSE
     IMP_CONTINUE
     IMP_LOG
@@ -67,6 +68,7 @@ use constant IMP_ACCTFIELD    => dualvar(0x0004,"acctfield");
 ### flow control
 use constant IMP_PAUSE        => dualvar(0x0010,"pause");
 use constant IMP_CONTINUE     => dualvar(0x0011,"continue");
+use constant IMP_REPLACE_LATER  => dualvar(0x0012,"replace_later");
 ### keep data
 use constant IMP_PASS         => dualvar(0x1001,"pass");
 use constant IMP_PASS_PATTERN => dualvar(0x1002,"pass_pattern");
@@ -469,6 +471,13 @@ the analyzer might result in out of memory situations.
 
 This signals the data provider, that the analyzer is able to process data
 again, e.g. will be called after a matching C<IMP_PAUSE>.
+
+=item [ IMP_REPLACE_LATER, $dir, $offset, $endoffset ]
+
+This is a promise, that sometimes later a replacement will be send for the data
+starting at C<$offset> and ending at C<$endoffset>. Based on this promise the
+data provider might just forget the data and thus save memory.
+Like with C<IMP_PAUSE> the data provider might ignore this return value.
 
 =item [ IMP_LOG, $dir, $offset, $len, $level, $msg ]
 

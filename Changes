@@ -1,3 +1,8 @@
+0.618 2013/06/27
+- added IMP_REPLACE_LATER as a promise to replace a range of data later and
+  thus let the data provider save space. Added way to not send optional
+  returns types like IMP_PAUSE, IMP_REPLACE_LATER if data provider does not
+  provide them
 0.617 2013/06/24
 - added IMP_FATAL return value to let analyzer propagate internal problems.
   Added support in bin/* data providers

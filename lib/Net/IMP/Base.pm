@@ -9,6 +9,8 @@ use fields (
     'meta',         # hash with meta data given to new_analyzer
     'analyzer_cb',  # callback, set from new_analyzer or with set_callback
     'analyzer_rv',  # collected results for polling or callback, set from add_results
+    'ignore_rv',    # hash with return values like IMP_PAUSE or IMP_REPLACE_LATER,
+                    # which are unsupported by the data provider and can be ignored
 );
 
 use Net::IMP::Debug;
@@ -90,6 +92,12 @@ sub set_interface {
     my Net::IMP::Base $factory = shift;
     my $want = shift;
     my ($if) = $factory->get_interface($want) or return;
+
+    my %ignore = map { $_+0 => $_ } 
+	( IMP_PAUSE, IMP_CONTINUE, IMP_REPLACE_LATER );
+    delete @ignore{ map { $_+0 } @{$if->[1]}};
+    $factory->{ignore_rv} = %ignore ? \%ignore : undef;
+
     if ( my $adaptor = $if->[2] ) {
 	# use adaptor
 	return $adaptor->new_factory(factory => $factory)
@@ -124,7 +132,11 @@ sub get_interface {
 	    } else {
 		# any local return types from not in out?
 		my %lout = map { $_ => 1 } ( @$lout, IMP_FATAL );
-		delete @lout{@$out};
+		delete @lout{
+		    @$out, 
+		    # these don't need to be supported
+		    (IMP_PAUSE, IMP_CONTINUE, IMP_REPLACE_LATER)
+		};
 		if ( %lout ) {
 		    # caller does not support all return types
 		    debug("no support for return types ".join(' ',keys %lout));
@@ -178,13 +190,24 @@ sub data { die "needs to be implemented" }
 
 sub add_results {
     my Net::IMP::Base $analyzer = shift;
-    push @{$analyzer->{analyzer_rv}},@_;
+    if ( my $ignore = $analyzer->{ignore_rv} ) {
+	push @{$analyzer->{analyzer_rv}}, grep { ! $ignore->{$_->[0]+0} } @_;
+    } else {
+	push @{$analyzer->{analyzer_rv}},@_;
+    }
 }
 
 sub run_callback {
     my Net::IMP::Base $analyzer = shift;
     my $rv = $analyzer->{analyzer_rv}; # get collected results
-    push @$rv,@_ if @_;   # add more results
+    if (@_) {
+	# add more results
+	if ( my $ignore = $analyzer->{ignore_rv} ) {
+	    push @$rv, grep { ! $ignore->{$_->[0]+0} } @_;
+	} else {
+	    push @$rv,@_;
+	}
+    }
     if ( my $cb = $analyzer->{analyzer_cb} ) {
 	my ($sub,@args) = @$cb;
 	$analyzer->{analyzer_rv} = []; # reset
