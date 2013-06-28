@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.618';
+our $VERSION = '0.619';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -43,7 +43,7 @@ my @log_levels = qw(
     IMP_LOG_ALERT
     IMP_LOG_EMERG
 );
-our @EXPORT_OK = (@log_levels, 'IMP_DATA','IMP_DATA_TYPES');
+our @EXPORT_OK = (@log_levels, 'IMP_DATA','IMP_DATA_TYPES', 'IMP_PASS_IF_BUSY');
 our %EXPORT_TAGS = ( log => \@log_levels );
 
 # data types/protocols
@@ -80,6 +80,18 @@ use constant IMP_REPLACE      => dualvar(0x1011,"replace");
 use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 use constant IMP_FATAL        => dualvar(0x1102,"fatal");
+
+# these return values still gets send if the data provider is busy
+# the most important are on top
+use constant IMP_PASS_IF_BUSY => [
+    IMP_FATAL, 
+    IMP_DENY, 
+    IMP_DROP, 
+    IMP_PAUSE, 
+    IMP_CONTINUE, 
+    IMP_ACCTFIELD
+];
+
 
 # marker for (pre)pass to Infinite for IMP_PASS, IMP_PREPASS
 use constant IMP_MAXOFFSET    => -1;
@@ -507,6 +519,11 @@ logfile, URL...)
 
 =back
 
+If there are multiple return values outstanding the data provider or the
+analyzer might reorder the data, as long as the order is not changed within
+types involving an offset, e.g. IMP_DENY or IMP_FATAL might be prefered
+compared to IMP_PASS.
+
 =head2 API Definition
 
 The following API needs to be implemented by all IMP plugins.
@@ -656,6 +673,14 @@ Results will be delivered through the callback or via C<poll_results>.
 
 Returns outstanding results.
 If a callback is attached, no results will be delivered this way.
+
+=item $analyzer->busy($dir,0|1)
+
+Reports to the analyzer if the data provider is busy and cannot process all
+requests. This is usually the case, if the upstream cannot keep up with the
+data, so sending gets stalled.
+While the data provider is busy the analyzer might still send return values,
+which might resolve the busy state, like IMP_DENY, IMP_FATAL etc
 
 =item Net::IMP->set_debug
 

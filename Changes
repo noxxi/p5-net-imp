@@ -1,3 +1,6 @@
+0.619 2013/06/28
+- with analyzer->busy(dir,busy) the data provider might notify the analyzer,
+  that it is busy at the moment, mostly because forwarding data is stalled.
 0.618 2013/06/27
 - added IMP_REPLACE_LATER as a promise to replace a range of data later and
   thus let the data provider save space. Added way to not send optional

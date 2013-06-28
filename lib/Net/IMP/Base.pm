@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP::Base;
-use Net::IMP;
+use Net::IMP qw(:DEFAULT IMP_PASS_IF_BUSY);
 use Carp 'croak';
 use fields (
     'factory_args', # arguments given to new_factory
@@ -11,6 +11,7 @@ use fields (
     'analyzer_rv',  # collected results for polling or callback, set from add_results
     'ignore_rv',    # hash with return values like IMP_PAUSE or IMP_REPLACE_LATER,
                     # which are unsupported by the data provider and can be ignored
+    'busy',         # if data provider is busy
 );
 
 use Net::IMP::Debug;
@@ -80,6 +81,7 @@ sub new_analyzer {
 	%$factory,          # common properties of all analyzers
 	%args,              # properties of this analyzer
 	analyzer_rv => [],  # reset queued return values
+	busy => undef,      # busy per dir
     );
     $analyzer->set_callback(@$cb) if $cb;
     return $analyzer;
@@ -183,6 +185,30 @@ sub poll_results {
 
 sub data { die "needs to be implemented" }
 
+sub busy {
+    my Net::IMP::Base $analyzer = shift;
+    my ($dir,$busy) = @_;
+    if ( $busy ) {
+	return if $analyzer->{busy}
+	    && $analyzer->{busy}[$dir]; # no change - stay busy
+	$analyzer->{busy}[$dir] = 1; # unbusy -> busy
+    } elsif ( ! $analyzer->{busy}
+	|| ! $analyzer->{busy}[$dir] ) {
+	return; # no change - stay not busy
+    } else {
+	# set to no busy on $dir, maybe no busy at all
+	$analyzer->{busy}[$dir] = 0;  # busy -> unbusy
+	if ( ! grep { $_ } @{$analyzer->{busy}} ) {
+	    # all dir are not busy anymore
+	    $analyzer->{busy} = undef;
+	}
+    }
+
+    # run callback, either for important stuff on busy or for 
+    # all stuff if not busy
+    $analyzer->run_callback; 
+}
+
 
 ############################################################################
 # internal analyzer methods
@@ -197,21 +223,52 @@ sub add_results {
     }
 }
 
-sub run_callback {
-    my Net::IMP::Base $analyzer = shift;
-    my $rv = $analyzer->{analyzer_rv}; # get collected results
-    if (@_) {
-	# add more results
-	if ( my $ignore = $analyzer->{ignore_rv} ) {
-	    push @$rv, grep { ! $ignore->{$_->[0]+0} } @_;
-	} else {
-	    push @$rv,@_;
+{
+    my %important = do {
+	my $p = IMP_PASS_IF_BUSY;
+	map { $p->[$_]+0 => $_+1 } (0..$#$p)
+    };
+
+    sub run_callback {
+	my Net::IMP::Base $analyzer = shift;
+	my $rv = $analyzer->{analyzer_rv}; # get collected results
+	if (@_) {
+	    # add more results
+	    if ( my $ignore = $analyzer->{ignore_rv} ) {
+		push @$rv, grep { ! $ignore->{$_->[0]+0} } @_;
+	    } else {
+		push @$rv,@_;
+	    }
 	}
-    }
-    if ( my $cb = $analyzer->{analyzer_cb} ) {
-	my ($sub,@args) = @$cb;
-	$analyzer->{analyzer_rv} = []; # reset
-	$sub->(@args,@$rv); # and call back
+	if ( my $cb = $analyzer->{analyzer_cb} ) {
+	    my ($sub,@args) = @$cb;
+	    if ( my $busy = $analyzer->{busy} ) {
+		# at least one dir is busy
+		my (@important,@nobusy,@busy);
+		for( @$rv ) {
+		    if ( my $lvl = $important{ $_->[0]+0 } ) {
+			push @important,[ $_, $lvl ]
+		    } elsif ( $busy->[$_->[1]] ) {
+			push @busy,$_
+		    } else {
+			push @nobusy,$_
+		    }
+		}
+		# sort by importance
+		@important = 
+		    map { $_->[0] } sort { $a->[1] <=> $b->[1] } @important 
+		    if @important;
+		if (@nobusy || @important) {
+		    $analyzer->{analyzer_rv} = \@busy;
+		    $sub->(@args,@important,@nobusy); 
+		} else {
+		    # nothing important enough to call back
+		}
+	    } else {
+		$analyzer->{analyzer_rv} = []; # reset
+		$sub->(@args,@$rv); # and call back
+	    }
+	}
     }
 }
 
@@ -430,6 +487,14 @@ It will only be used from the caller of the analyzer if no callback is set.
 
 This method should be defined for all analyzers.
 The implementation in this package will just croak.
+
+=item $analyzer->busy($dir,0|1)
+
+This method sets direction $dir to busy.
+The analyzer should not propagate results for this direction until it gets
+unbusy again (e.g. will accumulate results for later). 
+The exception are results which might help to solve the busy state, like
+IMP_DENY. Also, results not specific for this dir should still be delivered.
 
 =back
 
