@@ -172,7 +172,7 @@ sub set_callback {
     my Net::IMP::Base $analyzer = shift;
     my ($sub,@args) = @_;
     $analyzer->{analyzer_cb} = $sub ? [ $sub,@args ]:undef;
-    $analyzer->run_callback;
+    $analyzer->run_callback if $analyzer->{analyzer_rv};
 }
 
 # return queued results
@@ -264,7 +264,7 @@ sub add_results {
 		} else {
 		    # nothing important enough to call back
 		}
-	    } else {
+	    } elsif (@$rv) {
 		$analyzer->{analyzer_rv} = []; # reset
 		$sub->(@args,@$rv); # and call back
 	    }
