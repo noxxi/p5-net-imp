@@ -39,17 +39,20 @@ $analyzer->data(1,'');
 $analyzer->data(0,'');
 
 my @expect = (
-    [ 'replace', 0, 6, 'ABcdef' ],
+    [ 'replace', 0, 4, 'A' ],
+    [ 'replace', 0, 6, 'Bcdef' ],
     [ 'prepass', 0, 7 ],
     [ 'replace', 1, 4, 'ABCD' ],
     [ 'prepass', 1, 6 ],
     [ 'prepass', 1, 7 ],
-    [ 'replace', 1, 11, 'ABCD' ],
+    [ 'replace', 1, 9, 'ABCD' ],
+    [ 'replace', 1, 13, '' ],
     [ 'replace', 1, 13, 'ef' ],
-    [ 'prepass', 1, 13 ],
+    [ 'pass',    1, -1 ],
     [ 'prepass', 0, 9 ],
-    [ 'replace', 0, 13, 'cdef' ],
-    [ 'prepass', 0, -1 ]
+    [ 'replace', 0, 10, 'cdef' ],
+    [ 'replace', 0, 13, '' ],
+    [ 'pass',    0, -1 ],
 );
 
 if ( Dumper(\@expect) ne Dumper(\@rv)) {

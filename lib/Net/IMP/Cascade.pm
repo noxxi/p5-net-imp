@@ -1,5 +1,29 @@
 use strict;
 use warnings;
+
+############################################################################
+# BEWARE! complex stuff!
+# to aid with debugging problems:
+# - switch on debug mode
+# - to see whats going on in direction dir part p: 
+#   grep for '[dir][p]'
+# - to see whats transfering out of direction dir part p into next part/up: 
+#   grep for '[dir][p>'
+#
+# basic design
+# - we do not have lots of member variables, instead we put everything into
+#   new_analyzer as normal variables and declare various $sub = sub ... which
+#   use these variables. Thus the variables get bound once to the sub and we
+#   don't need to access it with $self->{field}... or so all the time
+# - subs and data structures are described in new_analyzer, the most important
+#   are
+#   - $global_in - this is the sub data method
+#   - $part_in   - called from global_in, itself and callbacks to put data
+#     into a specific part. Feeds the data in the associated analyzer
+#   - $imp_callback - callback for the analyzer of a specific part
+
+############################################################################
+
 package Net::IMP::Cascade;
 use base 'Net::IMP::Base';
 use fields (
@@ -13,7 +37,7 @@ use fields (
 use Net::IMP; # constants
 use Carp 'croak';
 use Scalar::Util 'weaken';
-use Hash::Util 'lock_keys';
+use Hash::Util qw(lock_ref_keys);
 use Net::IMP::Debug;
 use Data::Dumper;
 
@@ -21,11 +45,13 @@ my %rtypes_implemented_myself = map { $_ => 1 } (
     IMP_PASS,
     IMP_PREPASS,
     IMP_REPLACE,
+    IMP_REPLACE_LATER,
     IMP_DENY,
     IMP_DROP,
     #IMP_TOSENDER, # not supported yet
     IMP_LOG,
     IMP_ACCTFIELD,
+    IMP_FATAL,
 );
 
 sub get_interface {
@@ -110,113 +136,332 @@ sub new_analyzer {
     my $p     = $factory->{factory_args}{parts};
     my $self  = $factory->SUPER::new_analyzer(%args);
     my @imp = map { $_->new_analyzer(%args) } @$p;
-    $self->{parts} = \@imp;
 
     # $parts[$dir][$pi] is the part for direction $dir, analyzer $pi
+    # if part is optimized away due to IMP_PASS with IMP_MAXOFFSET
+    # $parts[$dir][$pi] contains instead an integer for adjustments
+    # from this part
     my @parts;
 
-    # each entry in parts consists of
-    # bufs - list of data buffers together with their state of processing
-    #   each entry in bufs consists of a hash with
-    #   - data: the data
-    #   - dtype: the type of data, e.g. IMP_DATA_STREAM, IMP_DATA_PACKET...
-    #   - endpos: position of end of data, relativ to input stream of part
-    #   - rtype: result type, which caused this buffer, eg IMP_PASS,
-    #     IMP_REPLACE... initially 0 (e.g. no type)
-    #   - eof: true if last buf in stream
-    #   because replacements might add/delete bytes we need to track these
-    #   adjustments for a chunk thru all parts. Unfortunatly this is fairly
-    #   complex. Example: if we replace 10 bytes with 3 bytes the local
-    #   adjustment will be -7. This adjustment will affect the adjustments
-    #   of all following data and will effect the final adjustment of this
-    #   data chunk in the cascade. But adjustments from later data should
-    #   not effect the adjustments for the current data..
-    #   - badjust: adjustment done in this [b]uffer, e.g. only caused by
-    #     replacements of data in this buffer in the current part
-    #   - gbadjust: like badjust, but accumulated over all parts ([g]lobal])
-    #   - padjust: accumulated adjustments relativ to input into this [p]art,
-    #     e.g. sum of badjust of this and all previous buf in this part
-    #   - gpadjust: like padjust, but over all parts ([g]lobal)
-    # fwapos - up to which position related to input stream data got
-    #   forwarded to analyzer (or passed w/o needing analyzer)
-    #   meaning: [pos]ition up to which it got [f]or[w]arded to [a]nalyzer
-    # gap    - flag, set if we recently skipped data due to IMP_PASS,
-    #   reset, when we send data to the analyzer.
-    #   If set the data will be forwarded to the analyzer with offset given
-    # lppos  - offset from [l]ast [p]ass|pre[p]ass reply (related to input
-    #   stream)
-    # lptype - type of reply which updated lppos (pass|prepass)
-    # partial_pass - flag if we got a (pre)pass for a part of the last
-    #   buffer, in case we have a non-streaming data type.
-    #   partial pass will be ignored if followed by another (pre)pass, but
-    #   it cannot be followed by a replacement (only whole packets can be
-    #   replaced)
-
-    # initialize @parts
-    for( my $i=0;$i<@imp;$i++ ) {
-
-	# data from client
-	$parts[0][$i] = my $h = {
-	    bufs   => [ Net::IMP::Cascade::_Buf->new ],
-	    fwapos => 0,
-	    gap    => 0,
-	    lppos  => 0,
-	    lptype => IMP_PASS,
-	    partial_pass => 0,
-	};
-	lock_keys(%$h);
-
-	# data from server get processed in the other direction
-	#  [CLIENT] --> 00 -> 11 -> .. [SERVER] .. --> 11 -> 00 ->
-	$parts[1][$i] = $h = {
-	    bufs   => [ Net::IMP::Cascade::_Buf->new ],
-	    fwapos => 0,
-	    gap    => 0,
-	    lppos  => 0,
-	    lptype => IMP_PASS,
-	    partial_pass => 0,
-	};
-	lock_keys(%$h);
-    }
-
-    # global lastpass
-    # if all analyzers in cascade issue a pass/prepass into the future
-    # we can propagate the minimum offset into future early
-    # $global_lastpass[$dir] -> [$lppos,$lptype]
-    my @global_lastpass = (
-	{ pos => 0, type => 0 },
-	{ pos => 0, type => 0 }
-    );
+    # pause/continue handling
+    # maintains pause status per part
+    my @pause;
 
     # to make sure we don't leak due to cross-references
     weaken( my $wself = $self );
 
-    # returns dump of parts for direction incl. bufs, only used for debugging
-    my $_dump_part = sub {
+    my $new_buf = sub {
+	lock_ref_keys( my $buf = {
+	    start   => 0,  # start of buf relativ to part
+	    end     => 0,  # end of buf relativ to part
+	    data    => '', # data or undef for replace_later
+	    dtype   => 0,  # data type
+	    rtype   => IMP_PASS,  # IMP_PASS < IMP_PREPASS < IMP_REPLACE
+	    gap     => 0,  # size of gap before buf?
+	    gstart  => 0,  # start of buf relativ to cascade
+	    gend    => 0,  # end of buf relativ to cascade
+	    eof     => 0   # flag if last buf in this direction
+	});
+	%$buf = ( %$buf, @_ ) if @_;
+	return $buf;
+    };
+
+    my $new_part = sub {
+	lock_ref_keys( my $p = {
+	    ibuf => [ &$new_buf ], # buffers, at least one
+	    pass          => 0,    # can pass up to ..
+	    prepass       => 0,    # can prepass up to ..
+	    replace_later => 0,    # will replace_later up to ..
+	    adjust        => 0,    # total local adjustments from forwarded bufs
+	});
+	return $p;
+    };
+
+    # initialize @parts
+    for( my $i=0;$i<@imp;$i++ ) {
+	$parts[0][$i] = $new_part->();       # client -> server, flow 0>1>2>..
+	$parts[1][$#imp-$i] = $new_part->(); # server -> client, flow 9>8>7>..
+    }
+
+    my $dump_bufs = sub {
+	my $bufs = shift;
+	my @out;
+	for my $i (@_ ? @_: 0..$#$bufs) {
+	    my $buf = $bufs->[$i];
+	    my $str = ! defined( $buf->{data} ) ? '<undef>' : do {
+		local $_ = $buf->{data};
+		$_ = substr($_,0,27).'...' if length($_)>30;
+		s{([\\\n\r\t[^:print:]])}{ sprintf("\\%03o",ord($1)) }esg;
+		$_
+	    };
+	    push @out, sprintf("#%02d %d..%d%s%s%s %s %s [%d,%d] '%s'",
+		$i,
+		$buf->{start},$buf->{end}, $buf->{eof} ? '$':'',
+		$buf->{gap} ? " +$buf->{gap}":"",
+		defined($buf->{data}) ? '':' RL',
+		$buf->{dtype},$buf->{rtype},
+		$buf->{gstart},$buf->{gend},
+		$str
+	    );
+	}
+	return join("\n",@out);
+    };
+    my $dump_parts = sub {
 	my $dir = shift;
-	my $t = '';
-	for my $i ( @_ ? @_ : (0..$#imp)) {
-	    my $p = $parts[$dir][$i];
-	    my $bufs = $p->{bufs};
-	    $t.= sprintf("[%d] $imp[$i] fwa(%d) lp=%s(%d) gap(%d)\n",
-		$i,$p->{fwapos},$p->{lptype},$p->{lppos},$p->{gap});
-	    for my $buf (@$bufs) {
-		$t .= sprintf(" - %s %s(%s) Badj(%d) Padj(%d) Gadj(%d) %s'%s'\n",
-		    $buf->{dtype} // '<undef>',
-		    $buf->{rtype},
-		    length($buf->{data})
-			? ($buf->{endpos}-length($buf->{data})+1)
-			    ."..$buf->{endpos}"
-			: $buf->{endpos},
-		    $buf->{badjust},
-		    $buf->{padjust},
-		    $buf->{gpadjust},
-		    $buf->{eof} ? '<eof> ' :'',
-		    $buf->{data}
-		);
+	my $out = '';
+	for my $pi (@_ ? @_ : 0..$#imp) {
+	    my $part = $parts[$dir][$pi];
+	    if ( ! $part ) {
+		$out .= "part[$dir][$pi] - skip\n";
+		next;
+	    }
+	    $out .= sprintf("part[%d][%d] p|pp|rl=%d|%d|%d ibuf:\n",
+		$dir,$pi,$part->{pass},$part->{prepass},$part->{replace_later});
+	    my $ib = $part->{ibuf};
+	    $out .= $dump_bufs->( $part->{ibuf});
+	}
+	return $out;
+    };
+
+    my $split_buf = sub {
+	my ($ibuf,$i,$fwd) = @_;
+	my $buf = $ibuf->[$i];
+	die "no split for packet types" if $buf->{dtype}>0;
+
+	my $buf_before = $new_buf->(
+	    %$buf,
+	    eof => 0,
+	    end => $buf->{start} + $fwd,  # adjust end
+	    defined($buf->{data}) 
+		? ( data => substr($buf->{data},0,$fwd,'') )  # real data
+		: (),  # replacement promise
+	);
+	# gap in buf_before
+	$buf->{gap} = 0;         
+	$buf->{start} = $buf_before->{end};
+
+	# if buf was not changed gend..gstart should reflect the 
+	# original length of the data
+	if ( $buf->{rtype} != IMP_REPLACE ) {
+	    $buf_before->{gend} = ( $buf->{gstart} += $fwd );
+	} else {
+	    # split gstart..gend into full|0 per convention
+	    $buf->{gstart} = $buf->{gend};
+	}
+
+	# put buf_before before buf in ibuf
+	splice(@$ibuf,$i,0,$buf_before);
+    };
+
+    my $fwd_collect; # collect bufs which can be forwarded
+    my $fwd_up;      # collect what can be passed up
+    my $exec_fwd;    # do the collected forwarding to next part or up
+
+    my $global_in;  # function where data gets fed into from outside (sub data)
+    my $part_in;    # internal feed into each part
+
+    my $imp_callback;   # synchronization wrapper around callback for the analyzers
+    my $_imp_callback;  # real callback for the analyzers
+
+    # pass passable bufs in part starting with ibuf[i]
+    # returns all bufs which can be passed and strips them from part.ibuf
+    $fwd_collect = sub {
+	my ($dir,$pi,$i,$r_passed) = @_;
+	my $part = $parts[$dir][$pi];
+	my $ibuf = $part->{ibuf};
+	$DEBUG && debug("fwd_collect[$dir][$pi]: p=$part->{pass} pp=$part->{prepass} ".$dump_bufs->($ibuf));
+	my @fwd;
+	for my $pp (qw(pass prepass)) {
+	    my $pass = $part->{$pp} or next;
+	    for( ;$i<@$ibuf;$i++ ) {
+		my $buf = $ibuf->[$i];
+		last if ! $buf->{dtype}; # dummy buf
+		if ( $pass != IMP_MAXOFFSET and $buf->{start} >= $pass ) {
+		    $DEBUG && debug("fwd_collect[$dir][$pi]: reset $pp due to start[$i]($buf->{start})>=$pp($pass)");
+		    $part->{$pp} = 0;
+		    last;
+		}
+		die "cannot pass bufs with replace_later" 
+		    if ! defined $buf->{data};
+		if ( $pass == IMP_MAXOFFSET or $buf->{end} <= $pass ) {
+		    # whole buffer can be passed
+		    $DEBUG && debug("fwd_collect[$dir][$pi]: pass whole buffer[$i] $buf->{start}..$buf->{end}");
+		    $buf->{rtype} = IMP_PREPASS if $pp eq 'prepass' 
+			and $buf->{rtype} == IMP_PASS;
+		    push @fwd,[ $pi,$dir,$buf ];
+
+		    # r_passed is set from part_in to track position if data
+		    # are passed. In case of prepass we don't pass data but
+		    # only put them into fwd
+		    next if $r_passed && $pp eq 'prepass';
+
+		    # track what got passed for part_in
+		    $$r_passed = $buf->{end} if $r_passed;
+
+		    # remove passed data from ibuf
+		    # if ! r_passed also prepassed data (called from imp_callback)
+		    shift(@$ibuf);
+		    $i--;
+
+		    if ( ! @$ibuf ) {
+			if ( $part->{pass} == IMP_MAXOFFSET || $buf->{eof} ) {
+			    # part done, skip it in the future
+			    push @fwd,[$pi,$dir,undef]; # buf = undef is special
+			}
+			# insert dummy
+			@$ibuf = $new_buf->(
+			    start  => $buf->{end},
+			    end    => $buf->{end},
+			    gstart => $buf->{gend},
+			    gend   => $buf->{gend},
+			    # keep type for streaming data
+			    $buf->{dtype} < 0 ? ( dtype => $buf->{dtype} ):(),
+			);
+			last;
+		    }
+
+		} else {
+		    # only part of buffer can be passed
+		    # split buffer and re-enter loop, this will foreward the
+		    # first part and keep the later part
+		    $DEBUG && debug("fwd_collect[$dir][$pi]: need to split buffer[$i]: $buf->{start}..$pass..$buf->{end}");
+		    $split_buf->($ibuf,$i,$pass - $buf->{start});
+		    redo; # don't increase $i!
+		}
 	    }
 	}
-	return $t;
+	return @fwd;
+    };
+
+    $fwd_up = sub {
+	my ($dir,$buf) = @_;
+	if ( $buf->{gstart} == $buf->{gend} && ! $buf->{gap} 
+	    && $buf->{rtype} ~~ [ IMP_PASS, IMP_PREPASS ]) {
+	    # don't repeat last (pre)pass because of empty buffer
+	    return;
+	}
+	    
+	return [
+	    $buf->{rtype},
+	    $dir,
+	    $buf->{gend},
+	    ($buf->{rtype} == IMP_REPLACE) ? ( $buf->{data} ):()
+	];
+    };
+
+    $exec_fwd = sub {
+	my @fwd = @_;
+	if (@fwd>1) {
+	    $DEBUG && debug("trying to merge\n".join("\n", map { 
+		! defined $_->[0] 
+		    ? "<cb>" 
+		    : "fwd[$_->[1]][$_->[0]] "
+			.( $_->[2] ? $dump_bufs->([$_->[2]]) : '<pass infinite>')
+	    } @fwd));
+	    # try to compress
+	    my ($lpi,$ldir,$lbuf);
+	    for( my $i=0;$i<@fwd;$i++ ) {
+		if ( ! defined $fwd[$i][0] || ! defined $fwd[$i][2]) {
+		    $lpi = undef;
+		    next;
+		}
+		if ( ! defined $lpi 
+		    or $lpi  != $fwd[$i][0]
+		    or $ldir != $fwd[$i][1] ) {
+		    ($lpi,$ldir,$lbuf) = @{$fwd[$i]};
+		    next;
+		}
+
+		my $buf = $fwd[$i][2];
+
+		if ( not $buf->{gap}
+		    and $buf->{dtype} < 0
+		    and $buf->{start} == $lbuf->{end}
+		    and $buf->{rtype} == $lbuf->{rtype}
+		    and $buf->{dtype} == $lbuf->{dtype}
+		) {
+		    if ( $buf->{rtype} == IMP_REPLACE ) {
+			if ( $lbuf->{gend} == $buf->{gend} ) {
+			    # same global end, merge data
+			    $lbuf->{data} .= $buf->{data};
+			} elsif ( $buf->{data} ne '' or $lbuf->{data} ne '' ) {
+			    # either one not empty, no merge
+			    next;
+			}
+		    } else {
+			# unchanged, append
+			$lbuf->{data} .= $buf->{data};
+		    }
+		    $DEBUG && debug("merge bufs ".$dump_bufs->([$lbuf,$buf]));
+		    $lbuf->{gend} = $buf->{gend};
+		    $lbuf->{end}  = $buf->{end};
+		    $lbuf->{eof}  = $buf->{eof};
+		    splice(@fwd,$i,1,());
+		    $i--;
+		    next;
+
+		} else {
+		    ($lpi,$ldir,$lbuf) = @{$fwd[$i]};
+		    next;
+		}
+	    }
+	}
+	while ( my $fwd = shift(@fwd)) {
+	    my $npi = my $pi = shift(@$fwd);
+	    if ( ! defined $npi ) {
+		# propagate prepared IMP callback
+		$wself->run_callback($fwd);
+		next;
+	    } 
+
+	    my ($dir,$buf) = @$fwd;
+
+	    if ( $buf ) {
+		my $np;
+		my $adjust = 0;
+		while (1) {
+		    $npi += $dir?-1:+1;
+		    last if $npi<0 or $npi>=@imp;
+		    last if ref( $np = $parts[$dir][$npi] );
+		    $adjust += $np;
+		    $DEBUG && debug("skipping pi=$npi");
+		}
+
+		if ( $buf->{eof} ) {
+		    # add pass infinite to fwd to propagate eof
+		    push @fwd,[ $pi,$dir,undef ];
+		}
+		if ( $np ) {
+		    # feed into next part
+		    my $nib = $np->{ibuf};
+		    # adjust start,end based on end of npi and gap
+		    $buf->{start} = $nib->[-1]{end} + $buf->{gap} + $adjust;
+		    $buf->{end} = $buf->{start} + length($buf->{data});
+		    $DEBUG && debug("fwd_next[$dir][$pi>$npi] ".$dump_bufs->([$buf]));
+		    $part_in->($npi,$dir,$buf); 
+		} else {
+		    # output from cascade
+		    my $cb = $fwd_up->($dir,$buf) or next;
+		    $DEBUG && debug("fwd_up[$dir][$pi>>] ".$dump_bufs->([$buf]));
+		    $wself->run_callback($cb);
+		}
+
+	    # special - part is done with IMP_PASS IMP_MAXOFFSET
+	    } else {
+		# skip if we had a pass infinite already
+		next if ! ref $parts[$dir][$pi];
+
+		$parts[$dir][$pi] = $parts[$dir][$pi]->{adjust};
+		if ( grep { ref($_) } @{ $parts[$dir] } ) {
+		    # we have other unfinished parts, skip only this part
+		    $DEBUG && debug("part[$dir][$pi>$npi] will be skipped in future, adjust=$parts[$dir][$pi]");
+		} else {
+		    # everything can be skipped
+		    $DEBUG && debug("part[$dir][$pi>>] all parts will be skipped in future");
+		    $wself->run_callback([ IMP_PASS,$dir,IMP_MAXOFFSET ]); # pass rest
+		}
+	    }
+	}
     };
 
     # the data function
@@ -224,770 +469,353 @@ sub new_analyzer {
     # in on part and should be transferred into the next part
     #  $pi    - index into parts
     #  $dir   - direction (e.g. target part is $parts[$dir][$pi])
-    #  $data  - the data
-    #  $pos   - offset of $data relativ to input into current part $pi
-    #  $dtype - data type of data (stream, packet...)
-    #  $rtype - if called from previous part we get the result type of the data,
-    #    e.g. if they are result of replacement, pass....
-    #    this needs to be propagated thru the parts and will be used in the
-    #    final result type
-    #  $eof   - are $data the last data in this direction?
-    #  $gbadjust, $gpadjust - fields from buf which was done in previous part
-    #    and got transferred into this part. Needed to accumulate adjustments
-    #    over all parts.
-    my $process;
-    my $_dataf = sub {
-	my ($pi,$dir,$data,$pos,$dtype,$rtype,$eof,$gbadjust,$gpadjust) = @_;
-	$pi = @imp+$pi if $pi<0;
+    #  $buf   - new buffer from $new_buf->(), which might be merged with existing
+    $part_in = sub {
+	my ($pi,$dir,$buf) = @_;
+	$DEBUG && debug( "part_in[$dir][$pi]: ".$dump_bufs->([$buf]));
 
-	$DEBUG && debug("dataf[$dir][$pi] len=".length($data)." "
-	    .($pos ? "pos=$pos":'<nooff>' )." "
-	    .( $rtype||'' )
-	    ." $dtype adj=$gbadjust/$gpadjust eof=$eof\n"
-	    .$_dump_part->($dir,$pi)
-	);
-	my $p = $parts[$dir][$pi];
-	my $bufs = $p->{bufs};
-	my $endpos = $bufs->[-1]{endpos};
+	my $part = $parts[$dir][$pi];
+	my $ibuf = $part->{ibuf};
+	my $lbuf = $ibuf->[-1];
+	my $lend = $lbuf->{end};
 
-	# add data to buf:
-	# if there is no gap and rtype of buf matches and no adjustments are
-	# used and dtype is stream type, then we can add data to an
-	# existing buf, otherwise we need to create a new one
-	# data from buffers with adjustments can never be merged, because
-	# adjustments are considered beeing at the end of the buf, not
-	# somewhere in the middle
-	if ( $pos and $endpos > $pos ) {
-	    die "overlapping data ($pos,$endpos)"
+	# some sanity checks
+	if(1) {
+	    die "data after eof [$dir][$pi] ".$dump_bufs->([$lbuf,$buf]) if $lbuf->{eof};
+	    if ( $buf->{start} != $lend ) {
+		if ( $buf->{start} < $lend ) {
+		    die "overlapping data off($buf->{start})<last.end($lend) in part[$dir][$pi]";
+		} elsif ( ! $buf->{gap} ) {
+		    die "gap should be set because off($buf->{start})>last.end($lend) in part[$dir][$pi]" 
+		}
+	    } elsif ( $buf->{gap} ) {
+		die "gap specified even if off($buf->{start}) == last.end"
+	    }
+	    $part->{pass} == IMP_MAXOFFSET and die 
+		"pass infinite should have been optimized by removing part[$dir][$pi]";
+	}
 
-	} elsif (
-	    ( ! $pos or $endpos == $pos ) # no gap
-	    # caused by same result type
-	    and ( ! $bufs->[-1]{rtype} or ($rtype||0) == $bufs->[-1]{rtype} )
-	    and ! $gbadjust and ! $bufs->[-1]{gbadjust} # no adjustments
-	    and ( # same streaming data type
-		! defined $bufs->[-1]{dtype} or
-		$dtype <0 and $dtype == $bufs->[-1]{dtype} )
+	# add data to buf
+	if ( $lbuf->{data} eq '' and $lbuf->{rtype} == IMP_PASS ) {
+	    # empty dummy buffer
+	    $DEBUG && debug("part_in[$dir][$pi]: replace dummy buffer");
+	    @$ibuf == 1 or die "empty dummy buffer should only be at beginning";
+	    @$ibuf = $buf;
+
+	} elsif ( ! $buf->{gap} 
+	    and $buf->{data} eq ''
+	    and $buf->{rtype} == $lbuf->{rtype} 
+	    and $buf->{dtype} == $lbuf->{dtype} 
+	    and $buf->{dtype} < 0 
+	    and ! $buf->{eof}
 	    ) {
-	    # append
-	    $endpos += length($data);
-	    $bufs->[-1]{data} .= $data;
-	    $bufs->[-1]{endpos} = $endpos;
-	    $bufs->[-1]{eof} = $eof && 1;
-	    $bufs->[-1]{rtype} ||= $rtype||0;
-	    $bufs->[-1]{dtype} = $dtype;
+	    # just update eof,[g]end of lbuf
+	    debug("part_in[$dir][$pi]: set lbuf end=$buf->{end} gend=$buf->{gend}");
+	    $lbuf->{end}  = $buf->{end};
+	    $lbuf->{gend} = $buf->{gend};
+	    # nothing to do with these empty data
+	    $DEBUG && debug("part_in[$dir][$pi] nothing to do on empty buffer");
+	    return;
 
 	} else {
-	    # gap, different type or adjustments involved
-	    $endpos = $pos + length($data);
-	    push @$bufs, Net::IMP::Cascade::_Buf->new(
-		data      => $data,
-		endpos    => $endpos,
-		dtype     => $dtype||0,
-		rtype     => $rtype||0,
-		eof       => $eof,
-		badjust   => 0,
-		gbadjust  => $gbadjust,
-		# padjust of previous buf is accumulated badjust of all
-		# previous bufs together
-		padjust   => $bufs->[-1]{padjust},
-		gpadjust  => $gpadjust,
-	    );
+	    # add new buf
+	    $DEBUG && debug("part_in[$dir][$pi]: add new buffer");
+	    push @$ibuf,$buf;
 	}
 
-	# if a new buffer was created we can now process the buffers
-	$process->($pi,$dir);
-    };
+	# determine what can be forwarded immediatly
+	my @fwd = $fwd_collect->($dir,$pi,$#$ibuf,\$lend);
 
-    # This is the central part. It processes buffers for $dir in part $pi.
-    # It gets called from $_dataf or $_imp_cb whenever:
-    # - new data arrived thru $_dataf from outside or previous part
-    #   -> send to analyzer if necessary
-    # - xor lppos increased due to IMP_(PRE)PASS callback from analyzer
-    #   -> check if buffered data can be forwarded to next part
-    # - xor replacements got added due to callback from analyzer, only in this
-    #   case @fwd will be given and contains buffers, which should be
-    #   propagated to next part
-    #   -> forward replaced buffers
-    $process = sub {
-	my ($pi,$dir,@fwd) = @_;
-
-	my $p    = $parts[$dir][$pi];
-	my $bufs = $p->{bufs};
-
-	# @fwd contains buffers to forward into next part
-	# this is only already set if called from callback on replacement,
-	# otherwise we will try to fill it based on bufs in current part
-
-	if ( ! @fwd ) {
-	    # new data added or lppos changed
-	    # check if we have data in bufs which might be added to @fwd
-
-	    my $endpos = $bufs->[-1]{endpos};
-	    die "endpos mismatch" if $endpos < $p->{fwapos};
-
-	    #debug( "bufs[$dir][$pi] fwapos=$p->{fwapos}, endpos=$endpos,".
-	    #   " lppos=$p->{lppos} -- " .Dumper($bufs));
-
-	    # up to offset=lppos we can forward w/o sending it to the analyzer
-	    # (on IMP_PASS) or send it to the analyzer after forwarding it
-	    # (IMP_PREPASS)
-	    while ( my $buf = shift(@$bufs) ) {
-		my $keep = ( $p->{lppos} != IMP_MAXOFFSET)
-		    ? $buf->{endpos} - $p->{lppos}
-		    : -1 ;
-		if ( $keep <=0 ) {
-		    $DEBUG && debug("fwd complete buf lppos=%d endpos=%d",
-			$p->{lppos}, $buf->{endpos});
-		    # we don't need to keep anything in the buf, e.g. fwd
-		    # complete buf
-		    # we might need to adjust the types, e.g. if lptype is
-		    # IMP_PASS but buf.type is IMP_PREPASS this will result in
-		    # IMP_PREPASS. The types are sorted in Net::IMP by
-		    # importance so we can just use the largest
-		    $buf->{rtype} = $p->{lptype} if $p->{lptype}>$buf->{rtype};
-		    $p->{partial_pass} = 0;
-
-		} elsif ( $keep < length($buf->{data}) ) {
-		    # we can forward parts of buf only
-		    # split $buf, $keep bytes will be kept in $bufs
-		    $DEBUG && debug("fwd part(buf) lppos=%d endpos=%d keep=%d",
-			$p->{lppos}, $buf->{endpos}, $keep);
-
-		    if ( $buf->{dtype} >0 ) {
-			# only streaming data might be split into arbitrary
-			# chunks, others can only be handled as whole packets
-			# thus just ignore this (pre)pass and hope we will get
-			# one with extends to the whole packet
-			$DEBUG && debug( sprintf(
-			    "ignoring partial (pre)pass for %s lppos=%d endpos=%d keep=%d",
-			    $buf->{dtype},$p->{lppos}, $buf->{endpos}, $keep));
-
-			# note the partial pass to croak if followed by replacement
-			$p->{partial_pass} = 1;
-			next;
-		    }
-
-		    my $data = substr($buf->{data},-$keep,$keep,'');
-
-		    # put buf with rest of data back into @$bufs
-		    # adjustments will stay in the rest, because they are
-		    # considered beeing at the end of the buf
-		    unshift @$bufs, Net::IMP::Cascade::_Buf->new(
-			data     => $data,
-			endpos   => $buf->{endpos},
-			badjust  => $buf->{badjust},
-			gbadjust => $buf->{gbadjust},
-			padjust  => $buf->{padjust},
-			gpadjust => $buf->{gpadjust},
-			eof      => $buf->{eof},
-			dtype    => $buf->{dtype},
-			rtype    => $buf->{rtype},
-		    );
-
-		    # adjust endpos of buf we forward
-		    $buf->{endpos} -= $keep;
-		    # adjust type: the more important wins
-		    $buf->{rtype} = $p->{lptype} if $p->{lptype}>$buf->{rtype};
-
-		    # adjustments and eof will stay with rest of data in @$bufs
-		    # padjust and gpadjust needs to be fixed to not contain any
-		    # adjustments which stay in the rest
-		    $buf->{padjust}  -= $buf->{badjust};
-		    $buf->{gpadjust} -= $buf->{gbadjust};
-		    $buf->{badjust}  = 0;
-		    $buf->{gbadjust} = 0;
-		    $buf->{eof}      = 0;
-
-		} else {
-		    # there is nothing we can forward, but buf back into @$bufs
-		    # and stop processing @$bufs
-		    unshift @$bufs,$buf;
-		    last;
-		}
-
-
-		# we have some $buf to forward because lppos allowed us so
-		# if lptype is IMP_PREPASS we need to send it to analyzer too,
-		# otherwise (IMP_PASS) we can skip the analyzer
-		# update part.fwapos and part.gap
-		if ( $buf->{endpos} > $p->{fwapos} ) {
-		    if ( $p->{lptype} == IMP_PREPASS ) {
-			# pass immediately, but also send to analyzer
-			my $data = $buf->{data};
-			my $keep = $buf->{endpos}-$p->{fwapos};
-			if ( $keep >= length($data)) {
-			    # forward all in buf
-			} else {
-			    # we have already send parts of buf to the analyzer
-			    # forward only the rest
-			    substr($data,-$keep,$keep,'');
-			}
-			# call analyzer for current part
-			# if there was a gap before we need to send the current
-			# offset
-			$imp[$pi]->data(
-			    $dir,
-			    $data,
-			    $p->{gap} ? $buf->{endpos}:0,
-			    $buf->{dtype},
-			);
-		    } else {
-			# pass w/o analyzer
-			# this causes a gap in the stream to the analyzer
-			$p->{gap} = 1;
-		    }
-
-		    # update part.fwapos with end of the forwarded buf
-		    $p->{fwapos} = $buf->{endpos};
-		}
-
-		# propagate eof to analyzer
-		# for lptype of IMP_PASS this needs to be done only if lppos !=
-		# IMP_MAXOFFSET, otherwise the analyzer was not interested in
-		# the end of data at all
-		if ( $buf->{eof} ) {
-		    if ( $buf->{eof} > 1 ) {
-			$DEBUG && debug(
-			    "[$dir][$pi] ignoring repeated eof type=$buf->{dtype}");
-		    } elsif ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
-			$DEBUG && debug("[$dir][$pi] pass eof type=$buf->{dtype}");
-			$buf->{eof}++;
-			$imp[$pi]->data(
-			    $dir,
-			    '',
-			    $p->{gap} ? $p->{fwapos}:0,
-			    $buf->{dtype},
-			)
-		    } else {
-			$DEBUG && debug("[$dir][$pi] do not pass eof type=$buf->{dtype}");
-		    }
-		}
-
-		# now add to @fwd so it gets transferred to next part
-		push @fwd,$buf;
-		$DEBUG && debug("process[$dir][$pi] fwd %d bytes with %s,".
-		    "badjust=%d",
-		    length($buf->{data}),$buf->{rtype},$buf->{badjust});
-	    }
-
-	    if ( ! @fwd and @$bufs == 1
-		and $bufs->[-1]{data} eq ''
-		and $bufs->[-1]{eof} ) {
-		# This is the special case, where we did not forward anything
-		# but have a single buf in the part which contains no data, but
-		# only eof.
-		# In this case add this buffer to @fwd so that the eof gets
-		# transferred to the next part
-		push @fwd, shift(@$bufs)
-	    }
-
-	    # if no more bufs are in the part add an empty one so that new data
-	    # can get added to it. Does not make much sense if we have eof but
-	    # makes code easier
-	    if ( ! @$bufs ) {
-		push @$bufs, Net::IMP::Cascade::_Buf->new(
-		    endpos   => $fwd[-1]{endpos},
-		    # cummulated adjustments needs to be copied from the last
-		    # buf we have forwarded
-		    padjust  => $fwd[-1]{padjust},
-		    gpadjust => $fwd[-1]{gpadjust},
-		)
-	    }
-	}
-
-	#debug("$pi ".Dumper([$bufs,'------',\@fwd]));
-
-	# transfer data to next part or propagate to caller
-	for my $fw (@fwd) {
-
-	    # skip fw with no useful information, e.g.
-	    # no data, no eof or no adjustments (adjustments needs to be
-	    # propagated even if we have no data, e.g. it might be that all
-	    # data in the chunk got replaced with '')
-	    if ( $fw->{data} ne ''   # we have data to transfer
-		or $fw->{eof}        # or eof needs to be propagated
-		or $fw->{badjust}    # or adjustment must be propagated
-	    ) {
-		# fine, we have useful information
-	    } else {
-		$DEBUG && debug("ignoring ".Dumper($fw));
-		next;
-	    }
-
-	    # check if $pi is the last part in the cascade
-	    # for dir 0 this will be $pi = $#imp, while for the opposite dir
-	    # this will be 0
-	    if ( $pi == ($dir ? 0:$#imp) ) {
-		# propagate result up
-
-		if ( ! $fw->{rtype} ) {
-		    # Type 0 should only be in a buffer, which got not analyzed
-		    # or did not got passed because of IMP_(PRE)PASS.
-		    # In this step in processing we should not have such
-		    # type anymore.
-		    die "untyped buffer at end of cascade";
-		}
-
-		# determine offset for propagation:
-		# fw.endpos is the position relativ to input of the last part.
-		# For propagating to the upper layer we need the matching
-		# position relativ to the the original input.
-		# We get this by applying all previously added adjustments
-		# back, but ignore adjustments from this part (adjustments are
-		# relevant to next part, but here we propagate up instead of
-		# transfering to next part).
-		my $eob                 # adjusted end of buffer is:
-		    = $fw->{endpos}     # endpos relativ to this part
-		    - $fw->{gpadjust}   # minus all adjustments so far
-		    + $fw->{padjust};   # but ignoring adjustments in this part
-		#debug( "up $fw->{rtype} ".
-		#   "eob($eob)=$fw->{endpos}-$fw->{gpadjust}".
-		#   "+$fw->{padjust}\n".$_dump_part->($dir));
-
-		$DEBUG && debug("process[$dir][$pi] -> cb($fw->{rtype},$dir,".
-		    "$eob=endpos($fw->{endpos})-gpa($fw->{gpadjust})+padj($fw->{padjust})");
-
-		if ( $eob < $global_lastpass[$dir]{pos}
-		    or $global_lastpass[$dir]{pos} == IMP_MAXOFFSET ) {
-		    # we already issued an IMP_(PRE)PASS for this offset
-		    # no need to propagate
-		} elsif ( $fw->{rtype} ~~ [ IMP_PASS, IMP_PREPASS ]) {
-		    # propagate IMP_(PRE)PASS
-		    $wself->run_callback([$fw->{rtype},$dir,$eob]);
-		} elsif ( $fw->{rtype} == IMP_REPLACE ) {
-		    # propagate IMP_REPLACE
-		    $wself->run_callback([$fw->{rtype},$dir,$eob,$fw->{data}]);
-		} else {
-		    # should not happen if this code is correct
-		    die "cannot handle type $fw->{rtype}"
-		}
-
-	    } else {
-		# we are not at the last part of the cascade
-		# transfer data into next part of cascade
-
-		# to determine the start position in the input stream for the
-		# next part we need adjust the end position in the buf by any
-		# adjustments so far in this part, then remove the length of
-		# the data
-		my $start =                # start position is:
-		    $fw->{endpos}          # end position
-		    + $fw->{padjust}       # skip all data we removed
-		    - length($fw->{data}); # minus length of current data
-
-		# call $_dataf with next part
-		# index of next part depends on $dir, e.g. if we go up or down
-		my $nextpi = $dir ? $pi-1:$pi+1;
-		$DEBUG && debug("process[$dir][$pi] -> ".
-		    "dataf(%d,pos=%d..",$nextpi,$start);
-		$_dataf->(
-		    $nextpi,
-		    $dir,
-		    $fw->{data},
-		    $start,
-		    $fw->{dtype},
-		    $fw->{rtype},
-		    $fw->{eof} && 1,
-		    $fw->{gbadjust},
-		    $fw->{gpadjust},
+	if ( $buf->{eof} ? $lend <= $buf->{end} : $lend < $buf->{end} ) {
+	    # send new data to the analyzer
+	    my $rl = $part->{replace_later};
+	    for(@$ibuf) {
+		next if $_->{start} < $lend;
+		die "last_end should be on buffer boundary" 
+		    if $_->{start} > $lend;
+		$lend = $_->{end};
+		$DEBUG && debug("analyzer[$dir][$pi] << %d bytes %s \@%d%s -> last_end=%d",
+		    $_->{end} - $_->{start},
+		    $_->{dtype},
+		    $_->{start},$_->{gap} ? "(+$_->{gap})":'',
+		    $lend
 		);
-	    }
-	}
-
-	# if we have data in this part which were not send to the analyzer,
-	# send them now
-	# this includes sending eof to the analyzer
-
-	my $endpos = $bufs->[-1]{endpos};
-	if ($endpos >= $p->{fwapos} ) {
-	    $DEBUG && debug("process[$dir][$pi] -> endpos=$endpos ".
-		"p.fwapos=$p->{fwapos}\n".$_dump_part->($dir));
-	    for my $buf (@$bufs) {
-
-		# $needa bytes need to be analyzed
-		my $needa = $buf->{endpos} - $p->{fwapos};
-		if ( $needa>0 ) {
-		    # some real data to analyze
-
-		    my $ld = length($buf->{data});
-		    if ( $needa>$ld ) {
-			# send everything, but we have a gap of size $needa-$ld
-			$DEBUG && debug("process[$dir][$pi] ".
-			    "-> data(%d,allbuf<%d>,%d,%s)",
-			    $dir,$ld,$buf->{endpos},$buf->{dtype});
-			$imp[$pi]->data(
-			    $dir,
-			    $buf->{data},
-			    $buf->{endpos}-$ld,
-			    $buf->{dtype},
-			);
-		    } else {
-			# the last $needa from buf needs to be analyzed (we
-			# skip optimization when $needa == $ld)
-			$DEBUG && debug("process[$dir][$pi] ".
-			    "-> data(%d,buf<%d,%d>,%s,%s)",
-			    $dir,
-			    $needa-$ld, $buf->{endpos},
-			    $p->{gap} ? $buf->{endpos}-$ld :'',
-			    $buf->{dtype},
-			);
-			$imp[$pi]->data(
-			    $dir,
-			    substr($buf->{data},-$needa,$needa),
-			    $p->{gap} ? $buf->{endpos}-$ld:0,
-			    $buf->{dtype},
-			);
-		    }
-		    $p->{fwapos} = $buf->{endpos};
-		    $p->{gap} = 0;
-		}
-	    }
-
-	    # If the last buf contains eof, we need to send this to the
-	    # analyzer too, except if we got a free ride with IMP_PASS of
-	    # IMP_MAXOFFSET.
-	    if ( $bufs->[-1]{eof}  ) {
-		if ( $bufs->[-1]{eof} > 1 ) {
-		    $DEBUG && debug(
-			"[$dir][$pi] ignoring repeated eof type=$bufs->[-1]{dtype}");
-		} elsif ( $p->{lptype} != IMP_PASS or $p->{lppos} != IMP_MAXOFFSET ) {
-		    $DEBUG && debug("[$dir][$pi] pass eof type=$bufs->[-1]{dtype}");
-		    $bufs->[-1]{eof}++;
-		    $imp[$pi]->data(
-			$dir,
-			'',
-			$p->{gap} ? $p->{fwapos}:0,
-			$bufs->[-1]{dtype}
-		    )
+		$imp[$pi]->data($dir,
+		    $_->{data},
+		    $_->{gap} ? $_->{start}:0,
+		    $_->{dtype}
+		);
+		$imp[$pi]->data($dir,'',0, $_->{dtype}) 
+		    if $buf->{eof} && $_->{data} ne '';
+		$rl or next;
+		if ( $rl == IMP_MAXOFFSET or $rl>= $lend ) {
+		    $buf->{data} = undef;
 		} else {
-		    $DEBUG && debug(
-			"[$dir][$pi] do not pass eof type=$bufs->[-1]{dtype}");
+		    $rl = $part->{replace_later} = 0; # reset
 		}
 	    }
+	} else {
+	    $DEBUG && debug("nothing to analyze[$dir][$pi]: last_end($lend) < end($buf->{end})");
 	}
+
+	# forward data which can be (pre)passed
+	$exec_fwd->(@fwd) if @fwd;
     };
 
-    # This is the callback for the analyzer, e.g. analyzer $imp[$pi] from part
-    # $pi calls $_imp_cb->($pi,@results)
-    my $_imp_cb = sub {
+    $_imp_callback = sub {
 	my $pi = shift;
 
-	# track if something changed for dir, so that we know if we need to
-	# recompute global_lastpass
-	my %dir_changed;
-
-	while ( my $rv = shift(@_)) {
+	my @fwd;
+	for my $rv (@_) {
 	    my $rtype = shift(@$rv);
 
-	    if ( $rtype ~~ [ 
-		    IMP_DENY,
-		    IMP_DROP,
-		    IMP_ACCTFIELD,
-		    IMP_PAUSE,
-		    IMP_CONTINUE 
-		]) {
-		# these gets propagated directly up w/o changes
-		$DEBUG && debug("impcb[*][$pi] $rtype @$rv");
-		$wself->run_callback([$rtype,@$rv]);
+	    if ( $rtype ~~ [ IMP_FATAL, IMP_DENY, IMP_DROP, IMP_ACCTFIELD ]) {
+		$DEBUG && debug("callback[.][$pi] $rtype @$rv");
+		$wself->run_callback([ $rtype, @$rv ]);
 
 	    } elsif ( $rtype == IMP_LOG ) {
-		# these gets also propagated directly up
-		$DEBUG && debug("impcb[*][$pi] $rtype @$rv");
-
-		# but we need to adjust the offset before so that it reflects
-		# the offset in the original input stream
 		my ($dir,$offset,$len,$level,$msg) = @$rv;
-		my $buf = $parts[$dir][$pi]{bufs}[-1];
-		$offset +=                    # adjust by
-		    $buf->{gpadjust}          # all adjustments so far
-		    - $buf->{padjust};        # but not from this part
-		$wself->run_callback([$rtype,$dir,$offset,$len,$level,$msg]);
-
-	    } elsif ( $rtype ~~ [ IMP_PASS,IMP_PREPASS ]) {
-		my ($dir,$offset) = @$rv;
-		#debug("impcb[$dir][$pi] $rtype off=$offset\n"
-		#    .$_dump_part->($dir));
-
-		my $p = $parts[$dir][$pi];
-		my $startpos = $p->{bufs}[0]{endpos}
-		    - length($p->{bufs}[0]{data});
-
-		if ( $p->{lppos} and (
-		    $p->{lppos} == IMP_MAXOFFSET or
-		    ($offset != IMP_MAXOFFSET and $offset < $p->{lppos})
-		    )) {
-		    # ignore because we got an IMP_(PRE)PASS with a higher
-		    # offset before
-		    $DEBUG && debug("impcb[$dir] $rtype ignoring, ".
-			"offset($offset)<lppos($p->{lppos})");
-
-		} elsif ( $offset <= $startpos and $offset != IMP_MAXOFFSET ) {
-		    # ignore because we got an IMP_(PRE)PASS for data we
-		    # already processed
-		    $DEBUG && debug("impcb[$dir][$pi] $rtype ignoring, ".
-			"offset($offset)<pos($startpos)");
-
-		} else {
-		    # set lppos and lptype from result and call process, to
-		    # see, if we could forward some more data
-		    $DEBUG && debug("impcb[$dir][$pi] $rtype off=$offset, ".
-			"lppos: $p->{lppos} -> $offset");
-
-		    $p->{lppos}  = $offset;
-		    $p->{lptype} = $rtype;
-		    $dir_changed{$dir}++;
-
-		    $process->($pi,$dir);
+		$DEBUG && debug("callback[$dir][$pi] $rtype '$msg' off=$offset len=$len lvl=$level");
+		# approximate offset to real position
+		my $newoff = 0;
+		my $part = $parts[$dir][$pi];
+		for ( @{$part->{ibuf}} ) {
+		    if ( $_->{start} <= $offset ) {
+			$offset = ( $_->{rtype} == IMP_REPLACE )
+			    ? $_->{gstart} 
+			    : $_->{gstart} - $_->{start} + $offset;
+		    } else {
+			last
+		    }
 		}
+		$wself->run_callback([ IMP_LOG,$dir,$offset,$len,$level,$msg ]);
+
+	    } elsif ( $rtype == IMP_PAUSE ) {
+		my $dir = shift;
+		$DEBUG && debug("callback[$dir][$pi] $rtype");
+		next if $pause[$pi];
+		$pause[$dir][$pi] = 1;
+		$wself->run_callback([ IMP_PAUSE ]) if grep { $_ } @pause > 1;
+
+	    } elsif ( $rtype == IMP_CONTINUE ) {
+		my $dir = shift;
+		$DEBUG && debug("callback[$dir][$pi] $rtype");
+		delete $pause[$dir][$pi];
+		$wself->run_callback([ IMP_CONTINUE ]) if not grep { $_ } @{$pause[$dir]};
+
+	    } elsif ( $rtype ~~ [ IMP_PASS, IMP_PREPASS ] ) {
+		my ($dir,$offset) = @$rv;
+		$DEBUG && debug("callback[$dir][$pi] $rtype $offset");
+		ref(my $part = $parts[$dir][$pi]) or next; # part skippable?
+		if ( $rtype == IMP_PASS ) {
+		    next if $part->{pass} == IMP_MAXOFFSET; # no change
+		    if ( $offset == IMP_MAXOFFSET ) {
+			$part->{pass} = IMP_MAXOFFSET;
+			$part->{prepass} = 0; # pass >= prepass
+		    } elsif ( $offset > $part->{pass} ) {
+			$part->{pass} = $offset;
+			if ( $part->{prepass} != IMP_MAXOFFSET 
+			    and $part->{prepass} <= $offset ) {
+			    $part->{prepass} = 0; # pass >= prepass
+			}
+		    } else {
+			next; # no change
+		    }
+		} else {  # IMP_PREPASS
+		    next if $part->{prepass} == IMP_MAXOFFSET; # no change
+		    if ( $offset == IMP_MAXOFFSET ) {
+			$part->{prepass} = IMP_MAXOFFSET;
+		    } elsif ( $offset > $part->{prepass} ) {
+			$part->{prepass} = $offset;
+		    } else {
+			next; # no change
+		    }
+		}
+
+		# pass/prepass got updated, so we might pass some more data
+		push @fwd, $fwd_collect->($dir,$pi,0);
 
 	    } elsif ( $rtype == IMP_REPLACE ) {
 		my ($dir,$offset,$newdata) = @$rv;
-		$DEBUG && debug("impcb[%d][%d] %s off=%d '%s'\n%s",
-		    $dir,$pi,$rtype,$offset,$newdata,$_dump_part->($dir));
-		my $p = $parts[$dir][$pi];
-		my $startpos = $p->{bufs}[0]{endpos}
-		    - length($p->{bufs}[0]{data});
+		$DEBUG && debug("callback[$dir][$pi] $rtype $dir $offset len=%d",length($newdata));
+		ref(my $part = $parts[$dir][$pi]) 
+		    or die "called replace for passed data";
+		my $ibuf = $part->{ibuf};
 
-		if ( $offset == IMP_MAXOFFSET
-		    or $offset > $p->{bufs}[-1]{endpos} ) {
-		    # we cannot replace future data
-		    die "cannot replace future data, endpos=".
-			$p->{bufs}[-1]{endpos}." offset=$offset";
+		# sanity checks
+		die "called replace although pass=IMP_MAXOFFSET" if ! $part;
+		die "no replace with IMP_MAXOFFSET" if $offset == IMP_MAXOFFSET;
+		die "called replace for already passed data" 
+		    if $ibuf->[0]{start} > $offset;
 
-		} elsif ( $p->{lppos} and
-		    ( $p->{lppos} == IMP_MAXOFFSET or $offset < $p->{lppos} )) {
-		    # We got a replacement for data which earlier received an
-		    # IMP_(PRE)PASS. This should never happen (but can, if the
-		    # analyzer is bogus).
-		    die "cannot replace \@$offset because of ".
-			"$p->{lptype} \@$p->{lppos}";
-
-		} elsif ( $offset < $startpos ) {
-		    # We got a replacement for data, we already handled.
-		    # This should never happen (but can, if the analyzer is
-		    # bogus).
-		    die "cannot replace already processed data";
-
-		} elsif ( $p->{partial_pass} ) {
-		    die "cannot replace part of packet (after partially passed data)";
-
-		} else {
-		    # The replacement consists of two pieces:
-		    # - remove all data which should be replaced from bufs
-		    # - call process with the data which should be used instead
-
-		    # first remove everything in bufs up to offset with newdata
-
-		    # badjust is the adjustment done in the buffer, e.g. how
-		    # much bytes got added (or removed if badjust<0)
-		    my $badjust = length($newdata) - ($offset - $startpos);
-		    $DEBUG && debug("impcb[%d][%d] %s %d '%s' badjust=%d ",
-			$dir,$pi,$rtype,$offset,$newdata,$badjust);
-
-		    # gbadjust is the sum of all existing gbadjust from the
-		    # buffers we remove
-		    my $gbadjust = 0;
-
-		    my $bufs = $p->{bufs};
-		    my $dtype;
-		    while (1) {
-			my $buf = $bufs->[0];
-			$dtype = $buf->{dtype};
-			if ( $buf->{endpos} <= $offset ) {
-			    $DEBUG && debug("remove whole buffer (%s/%d)",
-				$buf->{rtype},$buf->{endpos});
-
-			    # remove whole buffer
-			    shift(@$bufs);
-
-			    # add any gbadjust we would remove to the new val
-			    # we don't need to do the same with badjust because
-			    # badjust is 0 for all unprocessed buffers in a
-			    # part
-			    $gbadjust += $buf->{gbadjust};
-
-			    # add empty buf and exit loop in case all bufs are
-			    # eaten
-			    if ( !@$bufs ) {
-				push @$bufs, Net::IMP::Cascade::_Buf->new(
-				    endpos   => $offset,
-				    padjust  => $buf->{padjust},
-				    gpadjust => $buf->{gpadjust},
-				);
-				last;
-			    }
-
-			} elsif ( $buf->{endpos} - $offset
-			    < length($buf->{data})) {
-			    $DEBUG && debug("remove part of buffer (%s/%d)",
-				$buf->{rtype},$buf->{endpos});
-
-			    # Remove only first part of buffer up to $offset.
-			    # Partial replace is only available for stream data
-			    if ( $buf->{dtype} >0 ) {
-				croak( sprintf("cannot replace part of buffer %s (%s/%d)",
-				    $buf->{dtype},$buf->{rtype},$buf->{endpos}));
-			    }
-
-			    # No need to add to gbadjust because adjustments
-			    # are considered at the end of the buffer and we
-			    # keep the end.
-
-			    # keep last ($buf->{endpos}- $offset) bytes in buf
-			    $buf->{data} = substr($buf->{data},
-				$offset-$buf->{endpos});
+		while (@$ibuf) {
+		    my $buf = $ibuf->[0];
+		    if ( $offset >= $buf->{end} ) {
+			# replace complete buffer
+			$DEBUG && debug("replace complete buf $buf->{start}..$buf->{end}");
+			if ( ! defined($buf->{data}) or $buf->{data} ne $newdata ) {
+			    $buf->{rtype} = IMP_REPLACE;
+			    $buf->{data} = $newdata;
+			    $part->{adjust} += 
+				length($newdata) - ( $buf->{end} - $buf->{start});
+			    $newdata = ''; # in the next buffers replace with ''
+			}
+			push @fwd,[ $pi,$dir,$buf ];
+			shift(@$ibuf);
+			if ( ! @$ibuf ) {
+			    # all bufs eaten
+			    die "called replace for future data" if $buf->{end}<$offset;
+			    @$ibuf = $new_buf->( %$buf,
+				data   => '', 
+				start  => $buf->{end}, 
+				end    => $buf->{end},
+				gstart => $buf->{gend},
+				# packet types cannot get partial replacement at end
+				$buf->{dtype} > 0 ? ( dtype => 0 ):()
+			    );
+			    # remove eof from buf in @fwd, because we added new one
+			    $fwd[-1][2]{eof} = 0;
 			    last;
+			}
+			last if $buf->{end} == $offset;
+		    } else {
+			# split buffer and replace first part
+			$DEBUG && debug("replace - split buf $buf->{start}..$offset..$buf->{end}");
+			$split_buf->($ibuf,0,$offset-$buf->{start});
+			redo;
+		    }
+		}
 
+	    } elsif ( $rtype == IMP_REPLACE_LATER ) {
+		my ($dir,$offset) = @$rv;
+		$DEBUG && debug("callback[$dir][$pi] $rtype $offset");
+		ref(my $part = $parts[$dir][$pi]) 
+		    or die "called replace for passed data";
+		my $ibuf = $part->{ibuf};
+		$_->{replace_later} = IMP_MAXOFFSET and next; # no change
+
+		# sanity checks
+		die "called replace_later although pass=IMP_MAX_OFFSET" 
+		    if ! $part;
+		die "called replace for already passed data" if 
+		    $offset != IMP_MAXOFFSET and 
+		    $ibuf->[0]{start} > $offset;
+
+		if ( $offset == IMP_MAXOFFSET ) {
+		    $_->{replace_later} = IMP_MAXOFFSET;
+		    # change all to replace_later
+		    $_->{data} = undef for(@$ibuf);
+		    next;
+		} elsif ( $offset <= $part->{replace_later} ) {
+		    # no change
+		} else {
+		    $part->{replace_later} = $offset;
+		    for(@$ibuf) {
+			defined($_->{data}) or next; # already replace_later
+			my $len = length($_->{data}) or last; # dummy buffer
+			if ( $_->{start} + $len <= $offset ) {
+			    $_->{data} = undef;
 			} else {
-			    # nothing to remove
+			    $part->{replace_later} = 0;
 			    last;
 			}
 		    }
-
-		    if ( $badjust ) {
-			$gbadjust += $badjust;
-
-			# Each byte can only be in one buffer, because
-			# processed data will be immediately removed from the
-			# current part and forwarded to the next part.
-			# We need to propagate the adjustment to all data
-			# which were not processed yet, e.g. data in @$bufs, in
-			# previous parts and future data (this is done by using
-			# gpadjust in  _dataf).
-			for (@$bufs) {
-			    $_->{padjust}  += $badjust;
-			    $_->{gpadjust} += $badjust;
-			}
-			for my $i ( $dir ? ( $pi+1..$#imp ) : ( 0..$pi-1 )) {
-			    for (@{$parts[$dir][$i]{bufs}}) {
-				$_->{gpadjust} += $badjust;
-			    }
-			}
-		    }
-
-		    # process the new data, forward the replacements
-		    $process->($pi,$dir, Net::IMP::Cascade::_Buf->new(
-			data      => $newdata,
-			endpos    => $offset,
-			dtype     => $dtype,
-			rtype     => IMP_REPLACE,
-			badjust   => $badjust,
-			gbadjust  => $gbadjust,
-			padjust   => $bufs->[0]{padjust},
-			gpadjust  => $bufs->[0]{gpadjust},
-		    ));
-		    $dir_changed{$dir}++;
 		}
-
 	    } else {
-		die "unsupported type $rtype";
+		$DEBUG && debug("callback[.][$pi] $rtype @$rv");
+		die "don't know how to handle rtype $rtype";
 	    }
 	}
 
-	# if something changed, check if we could update global_lastpass
-	for my $dir (keys %dir_changed) {
-
-	    next if $global_lastpass[$dir]{pos} == IMP_MAXOFFSET;
-
-	    # We traverse all parts for $dir and check the amount of data we
-	    # could forward in each part (e.g. check lppos vs. endpos of last
-	    # buf in part). The minimum of all these values (lpdiff) is the
-	    # number of bytes we could (pre)pass over all parts.
-	    # Additionally we need to find the lptype with the most importance
-	    # which should be used for this data.
-
-	    my $lpdiff;
-	    my $lptype = 0;
-	    my $px = $parts[$dir];
-	    for my $p (@$px) {
-		if ( $p->{lppos} == IMP_MAXOFFSET ) {
-		    $lpdiff = IMP_MAXOFFSET;
-		    $lptype = $p->{lptype} if $p->{lptype} > $lptype;
-
-		} else {
-		    my $over = $p->{lppos} - $p->{bufs}[-1]{endpos};
-		    if ( $over <= 0 ) {
-			# nothing can be forwarded
-			$lpdiff = 0;
-			last
-		    } elsif ( ! $lpdiff || $lpdiff>$over ) {
-			# lpdiff can be forwarded with type lptype
-			$lpdiff = $over;
-			$lptype = $p->{lptype} if $p->{lptype} > $lptype;
-		    }
-		}
-	    }
-	    $lptype or next;
-	    my $pos;
-	    if ( $lpdiff == IMP_MAXOFFSET ) {
-		$pos = IMP_MAXOFFSET;
-	    } elsif ( $lpdiff>0 ) {
-		$pos = $px->[-1]{bufs}[-1]{endpos} + $lpdiff;
-		next if $pos <= $global_lastpass[$dir]{pos};
-	    } else {
-		next;
-	    }
-
-	    # we got a higher value for global_lastpass
-	    # update and propagate it up
-	    $global_lastpass[$dir] = {
-		pos  => $pos,
-		type => $lptype
-	    };
-	    $wself->run_callback([$lptype,$dir,$pos]);
-	}
+	# pass to next part/output
+	$exec_fwd->(@fwd) if @fwd;
     };
 
-    # While we are in $dataf function we will only spool callbacks and process
+    # While we are in $part_in function we will only spool callbacks and process
     # them at the end. Otherwise $dataf might cause call of callback which then
     # causes call of dataf etc - which makes debugging a nightmare.
 
     my $collect_callbacks;
-    my $dataf = sub {
+    $global_in = sub {
+	my ($dir,$data,$offset,$dtype) = @_;
+
+	my %buf = (
+	    data  => $data,
+	    dtype => $dtype // IMP_DATA_STREAM,
+	    rtype => IMP_PASS,
+	    eof   => $data eq '',
+	);
+
+	my $adjust = 0;
+	my $pi = $dir ? $#imp:0; # enter into first or last part
+	my $np;
+	while (1) {
+	    ref( $np = $parts[$dir][$pi] ) and last;
+	    $adjust += $np;
+	    $pi += $dir?-1:1;
+	    if ( $pi<0 or $pi>$#imp ) {
+		$DEBUG && debug("all skipped");
+		if ( my $cb = $fwd_up->($dir,$new_buf->(%buf))) {
+		    $self->run_callback($cb);
+		}
+		return;
+	    }
+	}
+
+	return if ! ref $np; # got IMP_PASS IMP_MAXOFFSET for all
+
+	my $ibuf_end = $np->{ibuf}[-1]{gend};
+	if ( ! $offset ) {
+	    # no gap between data
+	    $buf{gstart} = $ibuf_end;
+	} elsif ( $offset < $ibuf_end ) {
+	    die "overlapping data";
+	} elsif ( $offset > $ibuf_end ) {
+	    # gap between data
+	    $buf{gstart} = $offset;
+	    $buf{gap} = $offset - $ibuf_end;
+	} else {
+	    # there was no need for giving offset
+	    $buf{gstart} = $ibuf_end;
+	}
+	$buf{gend}  = $buf{gstart} + length($data);
+	$buf{start} = $buf{gstart} + $adjust;
+	$buf{end}   = $buf{gend} + $adjust;
+
 	$collect_callbacks ||= [];
-	$_dataf->(@_);
+	$part_in->( $pi,$dir, $new_buf->(%buf));
+
 	while ( my $cb = shift(@$collect_callbacks)) {
-	    $_imp_cb->(@$cb);
+	    $_imp_callback->(@$cb);
 	}
 	$collect_callbacks = undef
     };
 
     # wrapper which spools callbacks if within dataf
-    my $imp_cb = sub {
+    $imp_callback = sub {
 	if ( $collect_callbacks ) {
 	    # only spool and execute later
 	    push @$collect_callbacks, [ @_ ];
 	    return;
 	}
-	return $_imp_cb->(@_)
+	return $_imp_callback->(@_)
     };
 
     # setup callbacks
-    $imp[$_]->set_callback( $imp_cb,$_ ) for (0..$#imp);
+    $imp[$_]->set_callback( $imp_callback,$_ ) for (0..$#imp);
 
     # make some closures available within methods
-    $self->{dataf} = $dataf;
+    $self->{dataf} = $global_in;
     $self->{closef} = sub {
-	$dataf = $process = $imp_cb = undef;
+	$global_in = $part_in = $imp_callback = $_imp_callback = undef;
 	@parts = ();
     };
     return $self;
 }
 
 sub data {
-    my ($self,$dir,$data,$offset,$dtype) = @_;
-    $self->{dataf}(
-	$dir ? -1:0, # input part
-	$dir,
-	$data,
-	$offset,     # start of $data in input stream
-	$dtype // IMP_DATA_STREAM,  # data type
-	0,           # result type for this data from previous entry in cascade
-	$data eq '', # eof
-	0,           # gbadjust
-	0,           # gpadjust
-    );
+    my $self = shift;
+    $self->{dataf}(@_);
 }
 
 sub DESTROY {
@@ -995,20 +823,6 @@ sub DESTROY {
     $closef->() if $closef;
 }
 
-# This package just wraps each buffer in parts[dir][pi]{bufs}.
-# The fields got described at the beginning of new_analyzer.
-
-package Net::IMP::Cascade::_Buf;
-use fields qw(data endpos dtype rtype badjust padjust gpadjust gbadjust eof);
-sub new {
-    my ($class,%args) = @_;
-    my $self = fields::new($class);
-    %$self = %args;
-    $self->{data} //= '';
-    $self->{$_} //= 0 for
-	(qw(endpos rtype badjust padjust gpadjust gbadjust eof));
-    return $self;
-}
 
 1;
 
@@ -1048,9 +862,9 @@ Currently IMP_TOSENDER is not supported
 
 =head1 BUGS
 
-The feature and thus the code is way more complex than I originally hoped :(
-And it looks like, that there are some bugs in edge cases, so a rewrite
-is probably necessary.
+The code is way more complex than I originally hoped, even after a nearly
+complete rewrite of the innards. So probably the problem itself is complex.
+For debugging help see comments on top of code.
 
 =head1 AUTHOR
 

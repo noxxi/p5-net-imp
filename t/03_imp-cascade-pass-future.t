@@ -28,6 +28,7 @@ $analyzer->data(0,'FGH');
 $analyzer->data(0,'');
 
 my @expect = (
+    [ 'replace', 0, 10, '' ],
     [ 'replace', 0, 15, '' ],
     [ 'pass', 0, IMP_MAXOFFSET ],
 );

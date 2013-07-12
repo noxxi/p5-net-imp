@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.620';
+our $VERSION = '0.621';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
