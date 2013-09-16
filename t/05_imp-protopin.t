@@ -12,10 +12,10 @@ use Test::More;
 $Data::Dumper::Sortkeys = 1;
 $DEBUG=0; # enable for extensiv debugging
 
-# if you want to run only selected tests add test numbers to cmdline
-my %only = map { $_ =>1 } @ARGV;
-my @tests = (
+my @testdef = (
     {
+	id => 'basic',
+	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	rules => [
 	    { dir => 0, rxlen => 4, rx => qr/affe/ },
 	    { dir => 1, rxlen => 4, rx => qr/hund/ },
@@ -33,6 +33,7 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     },{
+	id => 'wrong_dir',
 	in => [
 	    [1,'hund'],
 	    [0,'affe'],
@@ -40,6 +41,7 @@ my @tests = (
 	],
 	rv => [[IMP_DENY, 1, 'rule#0 data from wrong dir 1' ]],
     },{
+	id => 'ignore_order',
 	ignore_order => 1,
 	rv => [
 	    [ IMP_PASS,1,4 ],
@@ -48,6 +50,8 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
+	id => 'max_unbound.undef',
+	dtype => [ IMP_DATA_STREAM ],
 	rules => [
 	    { dir => 1, rxlen => 7, rx => qr/SSH-2\.0/ }
 	],
@@ -60,11 +64,23 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
+	id => 'max_unbound.undef-packet',
+	dtype => [ IMP_DATA_PACKET ],
+	rules => [
+	    # should match complete packet
+	    { dir => 1, rxlen => 100, rx => qr/SSH-2\.0.*/ }
+	],
+    }, {
+	id => 'max_unbound.fit',
+	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	max_unbound => [4,], # "huhu" fits in 4 bytes
     }, {
+	id => 'max_unbound.nofit',
 	max_unbound => [0,],
-	rv => [[IMP_DENY, 0, 'too much data outside rules for dir 0' ]],
+	rv => [[IMP_DENY, 0, 'unbound buffer size=4 > max_unbound(0)' ]],
     }, {
+	id => 'max_unbound2.fit',
+	dtype => [ IMP_DATA_STREAM ],
 	max_unbound => [100,100],
 	rules => [
 	    { dir => 0, rxlen => 5, rx => qr/affe\n/ },
@@ -80,7 +96,8 @@ my @tests = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	max_unbound => [0,0],
+	id => 'extend_match',
+	max_unbound => [1,0],
 	rules => [
 	    { dir => 0, rxlen => 12, rx => qr/cloud(ella)?(ria)?/ },
 	    { dir => 1, rxlen => 1, rx => qr/./ }
@@ -101,6 +118,9 @@ my @tests = (
 	],
     },
     {
+	id => 'capture',
+	max_unbound => [0,0],
+	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
 	in => [[0,'toortoor']],
 	rv => [
@@ -109,22 +129,41 @@ my @tests = (
 	],
     },
     {
+	id => 'capture.fail',
 	rules => [ { dir => 0, rxlen => 8, rx => qr/(\w\w\w\w)\1/ } ],
 	in => [[0,'toorToor']],
 	rv => [[IMP_DENY, 0, 'rule#0 did not match' ]],
     },
     {
+	id => 'wrong_dir.2',
 	ignore_order => 0,
 	rules => [ { dir => 1, rxlen => 1, rx => qr/./ } ],
 	in => [[0,'foo']],
 	rv => [[IMP_DENY, 0, 'rule#0 data from wrong dir 0' ]],
     },
     {
+	id => 'eof',
+	dtype => [ IMP_DATA_STREAM ],
 	rules => [ { dir => 1, rxlen => 2, rx => qr/../ } ],
 	in => [[1,'X'],[1,'']],
 	rv => [[IMP_DENY, 1, 'eof on 1 but unmatched rule#0' ]],
     },
     {
+	id => 'eof2',
+	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
+	rules => [ 
+	    { dir => 1, rxlen => 1, rx => qr/A/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ }, 
+	],
+	in => [[1,'A'],[1,'']],
+	rv => [
+	    [IMP_PASS, 1, 1 ],
+	    [IMP_DENY, 1, 'eof on 1 but unmatched rule#1' ]
+	],
+    },
+    {
+	id => 'look_ahead',
+	dtype => [ IMP_DATA_STREAM ],
 	ignore_order => 1,
 	rules => [
 	    { dir => 0, rxlen => 6, rx => qr/foo(?=bar)/ },
@@ -141,6 +180,8 @@ my @tests = (
 	]
     },
     {
+	id => 'wildcard',
+	max_unbound => [],
 	ignore_order => 0,
 	rules => [
 	    { dir => 0, rxlen => 20, rx => qr/a.*b/ },
@@ -162,48 +203,124 @@ my @tests = (
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	]
+    },
+    {
+	id => 'dup',
+	dtype => [ IMP_DATA_PACKET ],
+	allow_dup => 1,
+	rules => [
+	    { dir => 0, rxlen => 1, rx => qr/A/ },
+	    { dir => 0, rxlen => 1, rx => qr/B/ },
+	    { dir => 0, rxlen => 1, rx => qr/C/ },
+	],
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'B' ],
+	    [ 0,'A' ],
+	    [ 0,'A' ],
+	    [ 0,'B' ],
+	    [ 0,'C' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,2 ],
+	    [ IMP_PASS,0,3 ],
+	    [ IMP_PASS,0,4 ],
+	    [ IMP_PASS,0,5 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
+    {
+	id => 'reorder',
+	allow_reorder => 1,
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'C' ],
+	    [ 0,'B' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,2 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
+    {
+	id => 'dup+reorder',
+	allow_dup => 1,
+	allow_reorder => 1,
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'C' ],
+	    [ 0,'A' ],
+	    [ 0,'C' ],
+	    [ 0,'B' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,2 ],
+	    [ IMP_PASS,0,3 ],
+	    [ IMP_PASS,0,4 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
     }
-
 );
 
-plan tests => @tests - keys(%only);
+my %only = map { $_ => 1 } @ARGV;
+my (%glob,@tests);
+my $count_tests = 0;
+for(@testdef) {
+    %glob = ( %glob, %$_ );
+    $_->{id} or next;
+    $only{ $_->{id} } or next if %only;
+    push @tests, { %glob } if $_->{id};
+    $count_tests += @{ $tests[-1]{dtype} };
+}
+
+plan tests => $count_tests;
 
 my (%test,$out);
-for(my $i=0;$i<@tests;$i++) {
-    %test = ( %test,%{$tests[$i]} ); # redefine parts of previous
-    next if %only && ! $only{$i};
-
-    my @rv;
-    my $cb = sub {
-	debug( "callback: ".Dumper(\@_));
-	push @rv,@_
-    };
+for my $test (@tests) {
 
     my %config = (
-	rules        => $test{rules},
-	max_unbound  => $test{max_unbound},
-	ignore_order => $test{ignore_order},
+	rules          => $test->{rules},
+	max_unbound    => $test->{max_unbound},
+	ignore_order   => $test->{ignore_order},
+	allow_dup      => $test->{allow_dup},
+	allow_reorder  => $test->{allow_reorder},
     );
     if ( my @err = Net::IMP::ProtocolPinning->validate_cfg(%config) ) {
-	fail("config[$i] not valid");
 	diag("@err");
+	fail("config[$test->{id}] not valid");
 	next;
     }
 
     my $factory = Net::IMP::ProtocolPinning->new_factory(%config);
-    my $analyzer = $factory->new_analyzer( cb => [$cb] );
 
-    for( @{$test{in}} ) {
-	my ($dir,$data) = @$_;
-	debug("send '$data' to $dir");
-	$analyzer->data($dir,$data);
-    }
+    for my $dtype (@{$test->{dtype}}) {
+	my @rv;
+	my $cb = sub {
+	    debug( "callback: ".Dumper(\@_));
+	    push @rv,@_
+	};
 
-    if ( Dumper(\@rv) ne Dumper($test{rv})) {
-	fail("protopin[$i]");
-	diag( "--- expected---\n".Dumper($test{rv}).
-	    "\n--- got ---\n".Dumper(\@rv));
-    } else {
-	pass("protopin[$i]");
+	my $analyzer = $factory->new_analyzer( cb => [$cb] );
+
+	for( @{$test->{in}} ) {
+	    my ($dir,$data,$ldtype) = @$_;
+	    debug("send '$data' to $dir");
+	    $analyzer->data($dir,$data,0,$ldtype||$dtype);
+	}
+
+	if ( Dumper(\@rv) ne Dumper($test->{rv})) {
+	    fail("$test->{id}|$dtype");
+	    diag( "--- expected---\n".Dumper($test->{rv}).
+		"\n--- got ---\n".Dumper(\@rv));
+	    die;
+	} else {
+	    pass("$test->{id}|$dtype");
+	}
     }
 }

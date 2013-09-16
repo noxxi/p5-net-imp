@@ -5,58 +5,113 @@ package Net::IMP::ProtocolPinning;
 use base 'Net::IMP::Base';
 use fields (
     'buf',            # buffered data for each direction
-    'off_buf0',       # position of buf[dir][0] in input stream
-    'off_not_fwd',    # offset up to which not yet forwarded
-    'rules',          # rules from config
-    'ignore_order',   # ignore_order from config
-    'max_unbound',    # max_unbound from config
+    'off_buf',        # start of buf[dir] relativ to input stream
+    'off_passed',     # offset up to which already passed
+    'ruleset',        # active rules per dir
+    # if allow_dup already matched packets are put with key md5(seed+packet)
+    # and rule number as value into matched[dir]{...}
+    'matched',        # hash of already matched packets
+    'matched_seed',   # random seed for matched hash (new for each analyzer)
 );
 
 use Net::IMP; # import IMP_ constants
 use Net::IMP::Debug;
+use Storable 'dclone';
+use Data::Dumper;
 use Carp 'croak';
+use Digest::MD5 'md5';
 
 sub INTERFACE { return (
-    [
-	IMP_DATA_STREAM,          # only stream data for now
-	[ IMP_PASS, IMP_DENY ]
-    ]
+    # we can stream and packets, although they behave differently
+    [ undef, [ IMP_PASS, IMP_DENY ] ]
 )}
 
-sub validate_cfg {
-    my ($class,%args) = @_;
+sub _compile_cfg {
+    my %args = @_;
 
-    my @err;
-    if ( my $r = delete $args{rules} ) {
-	# make sure that no rule matches empty string
-	for (my $i=0;$i<@$r;$i++) {
-	    push @err,"rule$i.dir must be 0|1" unless
-		defined $r->[$i]{dir} and
-		$r->[$i]{dir} ~~ [0,1];
-	    push @err,"rule$i.rxlen must be >0" unless
-		$r->[$i]{rxlen} and
-		$r->[$i]{rxlen} =~m{^\d+$} and
-		$r->[$i]{rxlen}>0;
-	    push @err,"rule$i.rx should be regex"
-		if ref($r->[$i]{rx}) ne 'Regexp';
-	    push @err,"rule$i.rx should not match empty string"
-		if '' =~ $r->[$i]{rx};
-	}
-    } else {
-	push @err,"rules need to be given";
-    }
+    my $ignore_order = delete $args{ignore_order};
+    my $allow_reorder = delete $args{allow_reorder};
+    my $r = delete $args{rules} or die "rules need to be given\n";
+    my $max_unbound  = delete $args{max_unbound};
 
-    if ( my $max_unbound  = delete $args{max_unbound} ) {
-	push @err,"max_unbound should be [max0,max1]" if @$max_unbound>2;
+    if ($max_unbound) {
+	die "max_unbound should be [max0,max1]\n" if @$max_unbound>2;
 	for (0,1) {
 	    defined $max_unbound->[$_] or next;
-	    push @err, "max_unbound[$_] should be number >=0"
+	    die "max_unbound[$_] should be number >=0\n"
 		if $max_unbound->[$_] !~m{^\d+$};
 	}
     }
 
-    delete $args{ignore_order}; # boolean, no further checks
+    # compile $args{rules} into list of rulesets per dir
+    # $ruleset[$dir][$i] -> [r1,r2,.] | undef
+    # - [ r1,r2.. ] - these rules can match, multiple rules at a time are only
+    #   possible if reorder. The rules will be tried in the given order until
+    #   one matches.
+    # - undef - no data for this dir allowed at this stage. If ignore_order
+    #   there can be rules for each dir at the same time, else not.
+    # When processing data it will remove completly matched rules, but
+    # put rules which might match more (e.g. data<rxlen) at the beginning.
+    # If no more rules are open inside a ruleset it will remove the ruleset
+    # and then
+    # - if there is a next ruleset for the same dir continue with it
+    #   (e.g no change after removing the done ruleset)
+    # - if there is no next ruleset (e.g. all rules done or next is undef)
+    #   remove any undef set from the other dir
+    # It will remove the ruleset of no more open rules are inside.
 
+    my @ruleset = ([],[]);
+    my $lastdir;
+    for (my $i=0;$i<@$r;$i++) {
+	my $dir = $r->[$i]{dir};
+	die "rule$i.dir must be 0|1\n" unless ($dir//-1 ) ~~ [0,1];
+	die "rule$i.rxlen must be >0\n" unless ($r->[$i]{rxlen}||0)>0;
+	my $rx = $r->[$i]{rx};
+	die "rule$i.rx should be regex\n" if ref($rx) ne 'Regexp';
+	die "rule$i.rx should not match empty string\n" if '' ~~ $rx;
+
+	if ( ! $ignore_order ) {
+	    # initial rule or direction change
+	    $lastdir //= $dir ? 0:1;
+	    if ( $lastdir != $dir ) {
+		push @{ $ruleset[$dir] }, []; # new ruleset
+		push @{ $ruleset[$lastdir] },undef; # no more allowd
+		$lastdir = $dir;
+	    }
+	} elsif ( not @{ $ruleset[$dir] } ) {
+	    # initialize when ignore_order
+	    push @{ $ruleset[$dir] },[];
+	}
+
+	# set ruleset to this rule
+	# if allow_reorder try to add it to existing ruleset
+	if ( $allow_reorder
+	    or ! @{ $ruleset[$dir][-1] } ) {
+	    push @{ $ruleset[$dir][-1] },$i;
+	} else {
+	    push @{ $ruleset[$dir] },[ $i ];
+	}
+    }
+
+    return (
+	rules => $r,
+	ruleset => \@ruleset,
+	allow_dup => $args{allow_dup},
+	max_unbound => $max_unbound,
+	%args,
+    );
+}
+
+sub new_factory {
+    my $class = shift;
+    return $class->SUPER::new_factory( _compile_cfg(@_));
+}
+
+sub validate_cfg {
+    my ($class,%args) = @_;
+    my @err;
+    push @err,$@ if ! eval { my @x = _compile_cfg(%args) };
+    delete @args{qw/rules max_unbound ignore_order allow_dup allow_reorder/};
     push @err,$class->SUPER::validate_cfg(%args);
     return @err;
 }
@@ -66,245 +121,446 @@ sub new_analyzer {
     my ($factory,%args) = @_;
 
     my $fargs = $factory->{factory_args};
-    my $rules = $fargs->{rules} or croak("no rules given");
-    my @rules01 = ([],[]);
-    my @buf;
-    for(my $i=0;$i<@$rules;$i++) {
-	# rxlen,rx are from the configuration
-	# pos is position of rule within the configuration
-	# matchlen is set to length of match, if rule matched already but
-	# might match more
-	my $r = $rules->[$i];
-	push @{ $rules01[$r->{dir}] }, {
-	    rx       => $r->{rx},
-	    rxlen    => $r->{rxlen},
-	    pos      => $i,
-	    matchlen => 0,
-	};
-	# set buf to '' for dir where we have rules, else leave undef
-	$buf[$r->{dir}] = '';
-    }
-
-    my $ignore_order = $fargs->{ignore_order};
-    my $max_unbound  = $fargs->{max_unbound} // [];
     my Net::IMP::ProtocolPinning $self = $factory->SUPER::new_analyzer(
 	%args,
 
-	# -- internal tracking ---
 	# buffer per direction
-	buf => \@buf,
-	# offset for buffer per direction
-	off_buf0 => [0,0],
-	# amount of data not yet forwarded
-	off_not_fwd => [0,0],
+	buf => [ '','' ],
 
-	# -- configuration ------
-	# array of rules for each dir
-	rules => \@rules01,
-	# if true server can send even if we except client data first etc
-	ignore_order => $ignore_order,,
-	# maximum number of data after all rules for direction are done (e.g
-	# data which cannot be bound to rule)
-	max_unbound => $max_unbound,
+	# offset for buffer per direction
+	off_buf => [0,0],
+
+	# amount of data already passed
+	off_passed => [0,0],
+
+	# clone ruleset because we will modify it
+	ruleset => dclone($fargs->{ruleset}),
+
+	# hash of already matched packets (per dir) if allow_dup
+	matched => $fargs->{allow_dup} ? [] : undef,
+	# seed for hashing matched packets, gets initialized on first use
+	matched_seed => undef,
     );
 
     return $self;
 }
 
+
+# matches buffer against rule
+# if match impossible returns ()
+# if no match, but might by possible if more data are added returns (0,0)
+# if matched and data got removed because bufsize >=rxlen returns (size,size)
+# if matched and data are still in buffer (match may be longer) returns (size,0)
+sub _match_stream {
+    my ($r,$rbuf) = @_;
+    $DEBUG && debug("try match rxlen=%d rx=%s buf=%d/'%s'",
+	$r->{rxlen},$r->{rx},length($$rbuf),$$rbuf);
+    my $lbuf = length($$rbuf);
+    if ($r->{rxlen} <= $lbuf ) {
+	if ( substr($$rbuf,0,$r->{rxlen}) =~s{\A$r->{rx}}{} ) {
+	    my $lm = $lbuf - length($$rbuf);
+	    $DEBUG && debug("final match of $lm in $r->{rxlen} bytes");
+	    return ($lm,$lm)  # (matched,removed=matched)
+	}
+	$DEBUG && debug("final failed match in $r->{rxlen} bytes");
+	return; # could never match because rxlen reached
+    } else {
+	if ( $$rbuf =~m{\A$r->{rx}}g ) {
+	    # might match later again and more
+	    my $lm = pos($$rbuf);
+	    $DEBUG && debug("temporal match of $lm in $lbuf bytes");
+	    return ($lm,0); # (matched,removed=0)
+	}
+	$DEBUG && debug("temporal failed match in $lbuf bytes");
+	return (0,0); # could match if more data
+    }
+}
+
+# like _match_stream but matches rx against whole packet.
+# result can either be final (size,size) or never ()
+sub _match_packet {
+    my ($r,$rbuf) = @_;
+    # try to match full packet
+    my $len = length($$rbuf);
+    return if $r->{rxlen} < $len; # could not match full packet
+    return $$rbuf =~m{\A$r->{rx}\Z} ? ($len,$len) : ();
+}
+
 sub data {
     my Net::IMP::ProtocolPinning $self = shift;
-    my ($dir,$data) = @_;
+    my ($dir,$data,$offset,$type) = @_;
 
-    $self->{buf} or return; # we gave already the final reply
-
-    my $rules = $self->{rules}[$dir];
-    my $o_dir = $dir ? 0:1;
-    my $o_rules = $self->{rules}[$o_dir];
-
-    if ( ! @$rules ) {
-	# no (more) rules for dir
-	die "there should be other rules" if ! @$o_rules; # sanity check
-
-	# shutdown but no rules is ok
-	# other side might still send more data to match open rules
-	return if $data eq '';
-
-	if ( ! $self->{ignore_order} ) {
-	    # we have unmatched rules in the other dir, thus consider
-	    # data from this side a protocol violation
-	    $self->{buf} = undef;
-	    $self->run_callback([
-		IMP_DENY,$dir,
-		"rule#$o_rules->[0]{pos} data from wrong dir $dir" ]);
-	    return;
-	}
-
-	# we don't need to buffer data, only track off_not_fwd
-	# issue DENY when we have too much data open
-	my $open = $self->{off_not_fwd}[$dir] += length($data);
-	if ( defined( my $max = $self->{max_unbound}[$dir])) {
-	    if ( $open>$max ) {
-		$self->{buf} = undef;
-		$self->run_callback([IMP_DENY,$dir,
-		    "too much data outside rules for dir $dir" ]);
-	    }
-	}
+    # buf gets removed at final reply
+    if ( ! $self->{buf} ) {
+	# we gave already the final reply
+	$DEBUG && debug("data[$dir] after final reply");
 	return;
     }
 
-    # add data to buf
-    my $buf = $self->{buf}[$dir] .= $data;
-    $self->{off_not_fwd}[$dir] += length($data);
-    $DEBUG && debug("got %d bytes on %d, bufsz=%d",
-	length($data),$dir,length($buf));
+    # never did IMP_PASS into future, so no offset allowed
+    $offset and die "no offset allowed";
 
+    $DEBUG && debug("dir=%d rules=%s |data=%d/'%s'",
+	$dir,Data::Dumper->new([$self->{ruleset}])->Indent(0)->Terse(1)->Dump,
+	length($data),$data);
 
-    # will cause IMP_PASS if rule matched
-    my $pass;
+    my $rs = $self->{ruleset}[$dir];   # [r]ule[s]et
+    my $rules = $self->{factory_args}{rules};
+    my $match = $type>0 ? \&_match_packet:\&_match_stream;
 
+    if ($data eq '' ) {
+	# eof - remove leading rule with extendable match and then
+	# check if all rules are done
+	if ( @$rs and my $match_in_progress =
+	    $self->{off_passed}[$dir] - $self->{off_buf}[$dir] ) {
+	    # rule done
+	    $self->{off_buf}[$dir] = $self->{off_passed}[$dir];
+	    $self->{buf}[$dir] = '';
+	    # remove matched rule
+	    # don't care for duplicates, they won't come anymore
+	    shift(@{$rs->[0]});
+	    # remove ruleset if empty
+	    if (! @{$rs->[0]}) {
+		shift(@$rs);
+		goto CHECK_DONE if ! @$rs;
+	    }
+	}
+	# still unmatched rules but we have eof, thus no more rules
+	# can match on this dir
+	$self->{buf} = undef;
+	$self->run_callback([
+	    IMP_DENY,
+	    $dir,
+	    "eof on $dir but unmatched rule#@{$rs->[0]}"
+	]);
+	return;
+    }
 
-    while ( @$rules and $buf ne '' ) {
-	my ($rxlen,$rx,$pos,$matchlen) =
-	    @{$rules->[0]}{qw(rxlen rx pos matchlen)};
+    NEXT_RULE:
+    if ( ! @$rs ) {
+	# no (more) rules for $dir, accumulate data until all rules for other
+	# direction are completed
+	$self->{buf}[$dir] eq '' or die "buffer should be empty";
+	$self->{off_buf}[$dir] += length($data);
 
-	if ( ! $self->{ignore_order} ) {
-	    while ( @$o_rules and $o_rules->[0]{pos} < $pos ) {
-		# there is an earlier rule for the other side
-		# remove it, if it did match already
-		if ( my $o_mlen = $o_rules->[0]{matchlen} ) {
-		    # remove rule
-		    $DEBUG && debug("remove matched rule on dir change");
-		    shift(@$o_rules);
+	my $max_unbound = $self->{factory_args}{max_unbound};
+	$max_unbound = $max_unbound && $max_unbound->[$dir];
+	if ( ! defined $max_unbound ) {
+	    $DEBUG && debug(
+		"buffer data for dir $dir because buffering not bound");
+	    return;
+	}
 
-		    # remove match from internal buffer
-		    substr($self->{buf}[$o_dir],0,$o_mlen,'');
-		    $self->{off_buf0}[$o_dir] += $o_mlen;
+	my $unbound = $self->{off_buf}[$dir] - $self->{off_passed}[$dir];
+	$DEBUG && debug("dir=%d off=%d passed=%d -> unbound=%d",
+	    $dir,$self->{off_buf}[$dir],$self->{off_passed}[$dir],$unbound);
+	if ( $unbound <= $max_unbound ) {
+	    $DEBUG && debug("buffer data for dir $dir because ".
+		"unbound($unbound)<=max_unbound($max_unbound)");
+	    return;
+	}
 
-		    # on last rule unset buf for o_dir
-		    $self->{buf}[$o_dir] = undef if ! @$o_rules;
+	$self->{buf} = undef;
+	$self->run_callback([
+	    IMP_DENY,
+	    $dir,
+	    "unbound buffer size=$unbound > max_unbound($max_unbound)"
+	]);
+	return;
+    }
 
-		    next;
+    # append new data to buf, for packet data we work directly with $data
+    unless ( $type > 0 ) {
+	$self->{buf}[$dir] .= $data;
+	$data = '';
+    }
+
+    my $crs = $rs->[0]; # crs - [c]urrent [r]ule[s]et
+    if ( ! $crs ) {
+	# data from $dir are not allowed at this stage
+
+	# finish a temporal match on the other side and then try again
+	my $odir = $dir ? 0:1;
+	my $ors = $self->{ruleset}[$odir];
+	if ( @$ors and $ors->[0] and my $omatch_in_progress
+	    = $self->{off_passed}[$odir] - $self->{off_buf}[$odir] ) {
+	    $DEBUG && debug("finish temporal match on $odir");
+	    $self->{off_buf}[$odir] = $self->{off_passed}[$odir];
+	    substr($self->{buf}[$odir],0,$omatch_in_progress,'');
+	    shift(@{$ors->[0]});
+	    if ( ! @{$ors->[0]} ) {
+		shift(@$ors); # ruleset done
+		shift(@$rs) if ! @$ors or ! $ors->[0]; # switch dir
+		goto NEXT_RULE; # and try again
+	    }
+	}
+
+	# ignore if it is a duplicate packet
+	# duplicate checking is only done for packet types
+	if ( $type>0 and $self->{matched} and $self->{buf}[$dir] eq ''
+	    and my $matched = $self->{matched}[$dir] ) {
+	    my $hpkt = md5($self->{matched_seed} . $data);
+	    if ( defined( my $r = $matched->{$hpkt} )) {
+		$DEBUG && debug("ignored DUP[$dir] for rule $r");
+		$self->{off_passed}[$dir]
+		    = $self->{off_buf}[$dir] += length($data);
+		$self->run_callback([ IMP_PASS,$dir,$self->{off_buf}[$dir] ]);
+		return;
+	    }
+	}
+	$DEBUG && debug("data[$dir] but <undef> rule -> DENY");
+	$self->{buf} = undef;
+	$self->run_callback([ IMP_DENY, $dir, "rule#"
+	    .( $self->{ruleset}[$dir?0:1][0][0] )." data from wrong dir $dir"
+	]);
+	return;
+    }
+
+    # if there was a last match try to extend it or to mark rule as done
+    if ( my $match_in_progress =
+	$self->{off_passed}[$dir] - $self->{off_buf}[$dir] ) {
+	# last rule matched already
+	if ( $type<0 ) {
+	    # try to extend match for streams
+	    my ($matched,$removed) =
+		$match->($rules->[$crs->[0]],\$self->{buf}[$dir]);
+	    die "expected $crs->[0] to match" if ! $matched;
+	    if ( $removed ) {
+		# rule finished, probably because rxlen reached
+		$DEBUG && debug("completed temporal match rule $crs->[0]");
+		$self->{off_buf}[$dir] += $removed;
+		if ( $removed > $match_in_progress ) {
+		    $self->run_callback([
+			IMP_PASS,
+			$dir,
+			$self->{off_passed}[$dir] = $self->{off_buf}[$dir]
+		    ])
+		}
+		# no return, might match more
+
+	    } elsif ( $matched > $match_in_progress ) {
+		# keep rule open but issue extended IMP_PASS
+		$DEBUG && debug("extended temporal match rule $crs->[0]");
+		$self->run_callback([
+		    IMP_PASS,
+		    $dir,
+		    $self->{off_passed}[$dir] = $self->{off_buf}[$dir]+$matched
+		]);
+		return; # need more data
+	    } else {
+		# keep rule open waiting for more data
+		$DEBUG && debug("still temporal(?) match rule $crs->[0]");
+		return; # need more data
+	    }
+
+	} else {
+	    # stream followed by packet, so rule cannot be extended
+	    # remove from buf until end of last match
+	    $DEBUG && debug("finished match rule $crs->[0] on packet $type");
+	    substr($self->{buf}[$dir],0,$match_in_progress,'');
+	    $self->{off_buf}[$dir] = $self->{off_passed}[$dir];
+	}
+
+	# match of previously matching rule done
+	# remove it and continue with next rule if there are more data
+	shift(@$crs);
+	if (! @$crs) {
+	    shift(@$rs);
+	    my $ors = $self->{ruleset}[$dir ? 0:1];
+	    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+	}
+	if ( $type>0 or $self->{buf}[$dir] ne '' ) {
+	    # unmatched data exist in data/buf
+	    if ( ! @$rs ) {
+		# all rules done from this direction, put back all
+		# from buf to $data before calling NEXT_RULE
+		$data = $self->{buf}[$dir];
+		$self->{buf}[$dir] = '';
+	    }
+	    goto NEXT_RULE;
+	}
+	return; # wait for more data
+    }
+
+    # check against current set
+    if ( $type>0 ) {
+	# packet data
+	if ( $self->{buf}[$dir] ne '' ) {
+	    $self->run_callback([
+		IMP_DENY,
+		$dir,
+		"packet data after unmatched streaming data"
+	    ]);
+	}
+	for( my $i=0;$i<@$crs;$i++ ) {
+	    if ( my ($len) = $match->($rules->[$crs->[$i]],\$data)) {
+		# match
+		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] += $len;
+		if ( $self->{matched} ) {
+		    # preserve hash of matched packet so that duplicates are
+		    # detected later
+		    $self->{matched}[$dir]{ md5(
+			( $self->{matched_seed} //= pack("N",rand(2**32)) ).
+			$data
+		    )} = $crs->[$i]
 		}
 
-		# the other rule should have matched earlier
-		$self->{buf} = undef;
-		$self->run_callback([IMP_DENY,$dir,
-		    "rule#$o_rules->[0]{pos} data from wrong dir $dir" ]);
+		if (@$crs>1) {
+		    # remove rule, keep rest in ruleset
+		    $DEBUG && debug(
+			"full match rule $crs->[$i] - remove from ruleset");
+		    splice(@$crs,$i,1);
+		} else {
+		    # remove ruleset with last rule in it
+		    $DEBUG && debug(
+			"full match rule $crs->[$i] - remove ruleset");
+		    shift(@$rs);
+		    my $ors = $self->{ruleset}[$dir ? 0:1];
+		    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+		}
+
+		# pass data
+		goto CHECK_DONE if ! @$rs;
+		$self->run_callback([
+		    IMP_PASS,
+		    $dir,
+		    $self->{off_passed}[$dir]
+		]);
 		return;
 	    }
 	}
 
-	# and try to match regex
-	# The regex should be constructed, so that the matched string cannot be
-	# longer than rxlen, e.g. instead of \d+ you should use the more
-	# specific \d{3,10} or so - in any case it will be checked only against
-	# a maximum of rxlen bytes.
-
-	my $blen = length($buf);
-	if ( substr($buf,0,$rxlen) =~ m{\A$rx}p ) {
-	    # rule matched
-	    my $mlen = length(${^MATCH});
-
-	    $DEBUG &&
-		debug("'%s' matched with len=%d, bufsz %d->%d: ok done=%d",
-		$rx,$mlen,$blen,$blen-$mlen,$blen>=$rxlen);
-
-	    # set pass after match
-	    # we can at least pass all matched data, the match might only
-	    # be longer on new data
-	    $pass = $self->{off_buf0}[$dir] + $mlen;
-
-	    # {matchlen} might contain the length of already matched data
-	    # apply only the newly matched to off_not_fwd
-	    $self->{off_not_fwd}[$dir] -= ( $mlen - ($rules->[0]{matchlen}||0));
-
-	    # the rule is definitely done if we reached rxlen
-	    my $rule_done;
-	    if ( $blen >= $rxlen ) {
-		$DEBUG && debug("rule done because rxlen reached");
-		$rule_done = 1;
+	# no rule from ruleset matched, check for duplicates
+	if ( $self->{matched} and my $dup = $self->{matched}[$dir] ) {
+	    my $r = $dup->{ md5($self->{matched_seed} . $data ) };
+	    if ( defined $r ) {
+		# matched again
+		$self->{off_passed}[$dir]
+		    = $self->{off_buf}[$dir] += length($data);
+		# pass data
+		$DEBUG && debug("ignore DUP[$dir] for rule $r");
+		$self->run_callback([
+		    IMP_PASS,
+		    $dir,
+		    $self->{off_passed}[$dir]
+		]);
+		return;
 	    }
+	}
 
-	    # if we have another rule in this direction immediatly after this
-	    # (e.g. ignore_order true or next.pos = pos+1), check if this rule
-	    # can match. In this case consider current rule also done.
-	    if ( ! $rule_done
-		and @$rules>1
-		and ( $self->{ignore_order} or $rules->[1]{pos} == $pos+1 )
-		){
-		my $next_rule = $rules->[1];
-		if ( substr($buf,$mlen,$next_rule->{rxlen})
-		    =~m{\A$next_rule->{rx}} ) {
-		    $DEBUG && debug("rule done because next rule matched");
-		    $rule_done = 1;
-		}
-	    }
+	# no rule and no duplicates matched, must be bad data
+	$DEBUG && debug("no matching rule for ${type}[$dir] - deny");
+	$self->{buf} = undef;
+	$self->run_callback([
+	    IMP_DENY,
+	    $dir,
+	    "rule#@$crs did not match"
+	]);
+	return;
 
-	    if ( $rule_done ) {
-
-		# remove match from internal buffer
-		substr($buf,0,$mlen,'');
-		$self->{buf}[$dir] = $buf;
-		$self->{off_buf0}[$dir] += $mlen;
-
-		# remove rule and try next
-		shift(@$rules);
+    } else {
+	# streaming data
+	my $temp_fail;
+	for( my $i=0;$i<@$crs;$i++ ) {
+	    my ($len,$removed)
+		= $match->($rules->[$crs->[$i]],\$self->{buf}[$dir]);
+	    if ( ! defined $len ) {
+		# will never match against rule
+		next;
+	    } elsif ( ! $len ) {
+		# note that it might match if buf gets longer but check other
+		# rules in ruleset if they match better
+		$temp_fail = 1;
 		next;
 	    }
 
-	    # we matched, but the match might be longer on new data.
-	    # Thus wait for new data, but mark the rules as matched, so it can
-	    # be removed if now data come from the other side and ! ignore_order
-	    $rules->[0]{matchlen} = $mlen;
+	    if ( ! $removed and @$crs == 1 and @$rs == 1 ) {
+		# last rule for dir - no need to extend temporal matches
+		# as long as max_unbound is not restrictive
+		my $ma = $self->{factory_args}{max_unbound};
+		if ( ! defined( $ma && $ma->[$dir] )) {
+		    $removed = $len;
+		    substr($self->{buf},0,$removed,'');
+		}
+	    }
 
-	    $DEBUG && debug("waiting for more data to extend existing match");
-	    last;
+	    # rule matched
+	    if ( ! $removed ) {
+		# match might not be final, wait for more data but put rule
+		# at the beginning of ruleset if it's not already there
+		unshift @$crs,splice(@$crs,$i,1) if $i>0;
 
-	} elsif ( $blen>=$rxlen ) {
-	    # pattern did not match although we had enough data in buffer
-	    $DEBUG && debug("'%s' did not match buflen(%d)>=rxlen(%d): fail",
-		$rx,$blen,$rxlen);
-	    $self->{buf} = undef;
-	    $self->run_callback([IMP_DENY,$dir,
-		"rule#$rules->[0]{pos} did not match" ]);
+		# advance off_passed, but keep off_buf
+		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] + $len;
+
+	    } else {
+		# final match of rule
+		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] += $len;
+		if (@$crs>1) {
+		    # remove rule, keep rest in ruleset
+		    $DEBUG && debug(
+			"full match rule $crs->[$i] - remove from ruleset");
+		    splice(@$crs,$i,1);
+		} else {
+		    # remove ruleset with last rule in it
+		    $DEBUG && debug(
+			"full match rule $crs->[$i] - remove ruleset");
+		    shift(@$rs);
+		    my $ors = $self->{ruleset}[$dir ? 0:1];
+		    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+		}
+		# allow_dup: put it in @matched only if it matched a packet,
+		# because dups make only sense for packet data
+	    }
+
+	    # pass data
+	    goto CHECK_DONE if ! @$rs;
+	    $self->run_callback([
+		IMP_PASS,
+		$dir,
+		$self->{off_passed}[$dir]
+	    ]);
+
+	    if ( $self->{buf}[$dir] ne '' ) {
+		# try to match more
+		$data = $self->{buf}[$dir];
+		$self->{buf}[$dir] = '';
+		goto NEXT_RULE;
+	    }
 	    return;
-
-	} else {
-	    # pattern did not match, but buflen<rxlen: wait for more data
-	    $DEBUG && debug("'%s' did not match in 0..%d<=rxlen(%d): ".
-		"need more data", $rx,$blen,$rxlen);
-	    last;
 	}
-    }
 
-    if ( $data eq ''
-	and @$rules
-	and ( @$rules>1 or not $rules->[0]{matchlen} )) {
-	# eof but we have still open rules
-	# consider early close as protocol violation
-	$self->{buf} = undef;
-	$self->run_callback([IMP_DENY,$dir,
-	    "eof on $dir but unmatched rule#$rules->[0]{pos}" ]);
+	if ( ! $temp_fail ) {
+	    # no rule and no duplicates matched, must be bad data
+	    $DEBUG && debug("no matching rule for ${type}[$dir] - deny");
+	    $self->{buf} = undef;
+	    $self->run_callback([
+		IMP_DENY,
+		$dir,
+		"rule#@$crs did not match"
+	    ]);
+	}
 	return;
     }
 
-    if (
-	( ! @$rules   or ( @$rules   == 1 and $rules->[0]{matchlen}  )) and
-	( ! @$o_rules or ( @$o_rules == 1 and $o_rules->[0]{matchlen}))
-	){
-	# all rules passed - let everything through
-	$self->{buf} = undef;
-	$self->run_callback(
-	    [ IMP_PASS,0,IMP_MAXOFFSET ],
-	    [ IMP_PASS,1,IMP_MAXOFFSET ],
-	);
-    } else {
-	$DEBUG && debug("need more data from $dir");
-	if ( $pass ) {
-	    # release data from matched rules
-	    $self->run_callback([ IMP_PASS,$dir,$pass ]);
-	}
+    CHECK_DONE:
+    return if @$rs; # still unmatched rules
+    if ( @{$self->{ruleset}[ $dir ? 0:1 ] }) {
+	# pass only current data
+	$self->run_callback([
+	    IMP_PASS,
+	    $dir,
+	    $self->{off_passed}[$dir]
+	]);
+	return;
     }
+    # rulesets for both dirs are done, pass all data
+    $DEBUG && debug("all rules done - pass rest");
+    $self->{buf} = undef;
+    $self->run_callback(
+	[ IMP_PASS,0,IMP_MAXOFFSET ],
+	[ IMP_PASS,1,IMP_MAXOFFSET ]
+    );
 }
 
 # cfg2str and str2cfg are redefined because our config hash is deeper
@@ -349,7 +605,7 @@ sub str2cfg {
 
     # sanity check
     my %scfg = %cfg;
-    delete @scfg{'rules','max_unbound','ignore_order'};
+    delete @scfg{qw(rules max_unbound ignore_order allow_dup allow_reorder)};
     %scfg and croak("unhandled config keys: ".join(' ',sort keys %scfg));
 
     return %cfg;
@@ -389,6 +645,9 @@ Net::IMP::ProtocolPinning - IMP plugin for simple protocol matching
 	# some clients send w/o initially waiting for server
 	ignore_order => 1,
 	max_unbound => [ 1024,0 ],
+	# for UDP use this
+	allow_dup => 1,
+	allow_reorder => 1,
     );
 
 =head1 DESCRIPTION
@@ -435,6 +694,18 @@ arrive.
 If false, it will cause DENY if data arrive from one direction, but the current
 rule is for the other direction.
 
+=item allow_dup BOOLEAN
+
+If true, it will ignore if the last rule (or any previous rule with
+C<allow_reorder>) matches again, instead of matching the next rule.
+Only packet data will be checked for duplicates.
+
+=item allow_reorder BOOLEAN
+
+If true, it will ignore if the rules match in a different order.
+Unless C<ignore_order> is given it will still enforce the order of data transfer
+between the directions.
+
 =item max_unbound [SIZE0,SIZE1]
 
 If there are no more active rules for direction, and ignore_order is true, then
@@ -449,69 +720,91 @@ If not set a default of unlimited will be used!
 
 =head2 Process of Matching Input Against Rules
 
+When new data arrive from direction it will try to match them against the rule
+list as follows and stop as soon a rule matches:
+
+=item 4
+
+=item *
+
+If there is a previously matching rule which might extend its match it will be
+tried first (only for stream data).
+
+=item *
+
+If the next rule in the list of rules matches the incoming direction it will be
+tried to match. If C<ignore_order> is true the next rule for the incoming
+direction will be used instead.
+
+=item *
+
+If C<allow_reorder> is true then all other rules until the next direction change
+in the rule list will be tried in the order of the rule list.
+If C<ignore_order> is true direction change in the rule list is ignored, e.g.
+all remaining rules for the incoming direction are considered.
+
+=item *
+
+If C<allow_dup> is true then all already matched rules from the incoming
+direction are allowed to match again, but only if no other rules match.
+To detect matches a hash over all matched packets will be saved and later
+checked. To avoid targeted collisions the hash consists of the md5 of an
+analyzer specific random seed and the data.
+
+=back
+
+If a rule matched the incoming data they will be passed using IMP_PASS.
+How the match gets executed and what happens if no rule matches depends on the
+data type:
+
 =over 4
 
-=item *
+=item Stream Data
 
-When new data arrive from direction and C<ignore_order> is false, it will take
-the first active rule and compare the direction of the data with the direction
-of the rule.
-If they don't match it will be considered a protocol violation and a DENY will
-be issued.
+For stream data it will match as much data as possible, e.g. the rule which
+matched last will be considered again if new data arrive in case the match might
+be extended. The rule will only be considered done if the C<rxlen> is reached, a
+direction change occured and C<ignore_order> is false or if it the last rule for
+the direction.
 
-When new data arrive from direction, but C<ignore_order> is true, it will pick
-the first active rule for this direction.
+The rules are matched after each other, e.g. the new match will start where the
+last match finished.
 
-=item *
+A useful value for C<rxlen> is necessary to not buffer too much data, because it
+is unable to detect if a rule does not even match the beginning of the incoming
+data. If no rules match the incoming data it will buffer up to the maximum
+C<rxlen> and only fail matching if it got more than C<rxlen> bytes of unmatched
+data and still no rule matches.
 
-If no rule is found for direction, no action will be taken.
-This causes the data to be buffered in the application and they will only be
-released, once all rules have been processed.
+C<allow_dup> and C<allow_reorder> will behave as documented, but because they
+usually don't expect the behavior of the data they should be better kept false.
 
-To limit the amount of buffered data in this case C<max_unbound> should be set.
+=item  Packet Data
+
+For packet data each rule will be matched against the whole packet, e.g. with an
+implicit C<\A> at the beginning and C<\Z> at the end of the regular expression.
+So there cannot be multiple rules matching the same packet after each other, nor
+can their be a rule spanning multiple packets.
+
+If no rule matches the incoming packet the matching will fail, e.g. no buffering
+and waiting for more data.
+
+If the packet stream is based on a protocol like UDP it is recommended to set
+C<allow_dup> and C<allow_reorder>, so that protocols match even if packets gets
+resubmitted or arrive out of order.
+
+=back
+
+Only if all rules are matched the remaining data will be passed using IMP_PASS
+with IMP_MAXOFFSET.
+If the matching failed an IMP_DENY is issued.
+
+If only the rules from one direction matched so their are still outstanding
+rules for the other connection the data for the completed connection will not be
+passed yet. To limit the amount of data which needs be be buffered by the caller
+C<max_unbound> should be set.
 Buffering more data than C<max_unbound> for this direction will cause a DENY.
 
-=item *
-
-A rule was found.
-It will add the new data to the local buffer for the direction and then
-try to match the first C<rxlen> bytes of the buffer against the rule.
-The regex of the rule is implicitly anchored at the beginning of the buffer.
-
-=item *
-
-If the rule matched and cannot match more (rxlen reached), it will
-
-=over 8
-
-=item * remove the rule from the list of active rules
-
-=item * remove the matched data from the local buffer
-
-=item * issue a PASS for the matched data
-
-=item * continue with the next active rule (if any)
-
-=back
-
-If the rule might still match more data, it will issue a PASS for the matched
-data, but wait with the other things until the rule is definitely done.
-
-=item *
-
-If the rule did not match, but the length of the local buffer is greater than
-or equal to C<< rxlen >>, it will consider the rule failed and issue a DENY.
-
-If the rule did not match, but the buffer is smaller than rxlen, it will wait
-for more data and then try the match again.
-
-=item *
-
-If all rules matched (e.g. no more active rules), it will issue a PASS into the
-future until the end of the connection, causing all data to get forwarded
-without further analysis.
-
-=back
 
 =head2 Rules for Writing the Regular Expressions
 
