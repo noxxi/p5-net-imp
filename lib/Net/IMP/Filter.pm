@@ -135,7 +135,7 @@ sub in {
 	$buf->[-1][1] .= $data;
     } else {
 	# need new buffer
-	push @$buf,[ 
+	push @$buf,[
 	    $buf->[-1][0] + length($buf->[-1][1]),  # base = end of last
 	    $data,
 	    $type
@@ -196,7 +196,7 @@ sub _imp_cb {
 		}
 
 	    # IMP_PREPASS
-	    } elsif ( $offset == IMP_MAXOFFSET or ( 
+	    } elsif ( $offset == IMP_MAXOFFSET or (
 		$offset > $self->{pass}[$dir] and
 		$offset > $self->{prepass}[$dir] )) {
 		# update for prepass
@@ -232,8 +232,8 @@ sub _imp_cb {
 		} elsif ( $buf0->[2] < 0 ) {
 		    # streaming type, can pass part of buf
 		    $DEBUG && debug("pass part of buf");
-		    push @fwd, [ 
-			$dir, 
+		    push @fwd, [
+			$dir,
 			substr($buf0->[1],0,$offset - $end,'')
 		    ];
 		    # put back with adjusted offset

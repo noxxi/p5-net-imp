@@ -10,7 +10,7 @@ use fields (
     'analyzer_cb',  # callback, set from new_analyzer or with set_callback
     'analyzer_rv',  # collected results for polling or callback, set from add_results
     'ignore_rv',    # hash with return values like IMP_PAUSE or IMP_REPLACE_LATER,
-                    # which are unsupported by the data provider and can be ignored
+		    # which are unsupported by the data provider and can be ignored
     'busy',         # if data provider is busy
 );
 
@@ -95,7 +95,7 @@ sub set_interface {
     my $want = shift;
     my ($if) = $factory->get_interface($want) or return;
 
-    my %ignore = map { $_+0 => $_ } 
+    my %ignore = map { $_+0 => $_ }
 	( IMP_PAUSE, IMP_CONTINUE, IMP_REPLACE_LATER );
     delete @ignore{ map { $_+0 } @{$if->[1]}};
     $factory->{ignore_rv} = %ignore ? \%ignore : undef;
@@ -135,7 +135,7 @@ sub get_interface {
 		# any local return types from not in out?
 		my %lout = map { $_ => 1 } ( @$lout, IMP_FATAL );
 		delete @lout{
-		    @$out, 
+		    @$out,
 		    # these don't need to be supported
 		    (IMP_PAUSE, IMP_CONTINUE, IMP_REPLACE_LATER)
 		};
@@ -204,9 +204,9 @@ sub busy {
 	}
     }
 
-    # run callback, either for important stuff on busy or for 
+    # run callback, either for important stuff on busy or for
     # all stuff if not busy
-    $analyzer->run_callback; 
+    $analyzer->run_callback;
 }
 
 
@@ -255,12 +255,12 @@ sub add_results {
 		    }
 		}
 		# sort by importance
-		@important = 
-		    map { $_->[0] } sort { $a->[1] <=> $b->[1] } @important 
+		@important =
+		    map { $_->[0] } sort { $a->[1] <=> $b->[1] } @important
 		    if @important;
 		if (@nobusy || @important) {
 		    $analyzer->{analyzer_rv} = \@busy;
-		    $sub->(@args,@important,@nobusy); 
+		    $sub->(@args,@important,@nobusy);
 		} else {
 		    # nothing important enough to call back
 		}
@@ -331,7 +331,7 @@ the config has no errors.
 
 The only valid entry for %config in the implementation in this package is
 C<eventlib>, which provides a way for analyzers to hook into the data providers
-event handling. 
+event handling.
 If there are any other entries are left in C<%config> it will complain.
 Thus all arguments specific to the derived analyzer should be handled in a
 derived C<validate_cfg> method and removed from C<%config> before calling the
@@ -353,11 +353,11 @@ hook into it:
 
 =item $ev->onread( filehandle,[ callback ])
 
-Sets or removes callback for read events on filehandle. 
+Sets or removes callback for read events on filehandle.
 
 =item $ev->onwrite( filehandle,[ callback ])
 
-Sets or removes callback for write events on filehandle. 
+Sets or removes callback for write events on filehandle.
 
 =item $ev->timer( after, callback, [ interval ])
 
@@ -492,7 +492,7 @@ The implementation in this package will just croak.
 
 This method sets direction $dir to busy.
 The analyzer should not propagate results for this direction until it gets
-unbusy again (e.g. will accumulate results for later). 
+unbusy again (e.g. will accumulate results for later).
 The exception are results which might help to solve the busy state, like
 IMP_DENY. Also, results not specific for this dir should still be delivered.
 

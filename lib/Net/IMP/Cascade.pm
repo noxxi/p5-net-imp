@@ -5,9 +5,9 @@ use warnings;
 # BEWARE! complex stuff!
 # to aid with debugging problems:
 # - switch on debug mode
-# - to see whats going on in direction dir part p: 
+# - to see whats going on in direction dir part p:
 #   grep for '[dir][p]'
-# - to see whats transfering out of direction dir part p into next part/up: 
+# - to see whats transfering out of direction dir part p into next part/up:
 #   grep for '[dir][p>'
 #
 # basic design
@@ -232,15 +232,15 @@ sub new_analyzer {
 	    %$buf,
 	    eof => 0,
 	    end => $buf->{start} + $fwd,  # adjust end
-	    defined($buf->{data}) 
+	    defined($buf->{data})
 		? ( data => substr($buf->{data},0,$fwd,'') )  # real data
 		: (),  # replacement promise
 	);
 	# gap in buf_before
-	$buf->{gap} = 0;         
+	$buf->{gap} = 0;
 	$buf->{start} = $buf_before->{end};
 
-	# if buf was not changed gend..gstart should reflect the 
+	# if buf was not changed gend..gstart should reflect the
 	# original length of the data
 	if ( $buf->{rtype} != IMP_REPLACE ) {
 	    $buf_before->{gend} = ( $buf->{gstart} += $fwd );
@@ -281,12 +281,12 @@ sub new_analyzer {
 		    $part->{$pp} = 0;
 		    last;
 		}
-		die "cannot pass bufs with replace_later" 
+		die "cannot pass bufs with replace_later"
 		    if ! defined $buf->{data};
 		if ( $pass == IMP_MAXOFFSET or $buf->{end} <= $pass ) {
 		    # whole buffer can be passed
 		    $DEBUG && debug("fwd_collect[$dir][$pi]: pass whole buffer[$i] $buf->{start}..$buf->{end}");
-		    $buf->{rtype} = IMP_PREPASS if $pp eq 'prepass' 
+		    $buf->{rtype} = IMP_PREPASS if $pp eq 'prepass'
 			and $buf->{rtype} == IMP_PASS;
 		    push @fwd,[ $pi,$dir,$buf ];
 
@@ -335,12 +335,12 @@ sub new_analyzer {
 
     $fwd_up = sub {
 	my ($dir,$buf) = @_;
-	if ( $buf->{gstart} == $buf->{gend} && ! $buf->{gap} 
+	if ( $buf->{gstart} == $buf->{gend} && ! $buf->{gap}
 	    && $buf->{rtype} ~~ [ IMP_PASS, IMP_PREPASS ]) {
 	    # don't repeat last (pre)pass because of empty buffer
 	    return;
 	}
-	    
+
 	return [
 	    $buf->{rtype},
 	    $dir,
@@ -352,9 +352,9 @@ sub new_analyzer {
     $exec_fwd = sub {
 	my @fwd = @_;
 	if (@fwd>1) {
-	    $DEBUG && debug("trying to merge\n".join("\n", map { 
-		! defined $_->[0] 
-		    ? "<cb>" 
+	    $DEBUG && debug("trying to merge\n".join("\n", map {
+		! defined $_->[0]
+		    ? "<cb>"
 		    : "fwd[$_->[1]][$_->[0]] "
 			.( $_->[2] ? $dump_bufs->([$_->[2]]) : '<pass infinite>')
 	    } @fwd));
@@ -365,7 +365,7 @@ sub new_analyzer {
 		    $lpi = undef;
 		    next;
 		}
-		if ( ! defined $lpi 
+		if ( ! defined $lpi
 		    or $lpi  != $fwd[$i][0]
 		    or $ldir != $fwd[$i][1] ) {
 		    ($lpi,$ldir,$lbuf) = @{$fwd[$i]};
@@ -412,7 +412,7 @@ sub new_analyzer {
 		# propagate prepared IMP callback
 		$wself->run_callback($fwd);
 		next;
-	    } 
+	    }
 
 	    my ($dir,$buf) = @$fwd;
 
@@ -438,7 +438,7 @@ sub new_analyzer {
 		    $buf->{start} = $nib->[-1]{end} + $buf->{gap} + $adjust;
 		    $buf->{end} = $buf->{start} + length($buf->{data});
 		    $DEBUG && debug("fwd_next[$dir][$pi>$npi] ".$dump_bufs->([$buf]));
-		    $part_in->($npi,$dir,$buf); 
+		    $part_in->($npi,$dir,$buf);
 		} else {
 		    # output from cascade
 		    my $cb = $fwd_up->($dir,$buf) or next;
@@ -486,12 +486,12 @@ sub new_analyzer {
 		if ( $buf->{start} < $lend ) {
 		    die "overlapping data off($buf->{start})<last.end($lend) in part[$dir][$pi]";
 		} elsif ( ! $buf->{gap} ) {
-		    die "gap should be set because off($buf->{start})>last.end($lend) in part[$dir][$pi]" 
+		    die "gap should be set because off($buf->{start})>last.end($lend) in part[$dir][$pi]"
 		}
 	    } elsif ( $buf->{gap} ) {
 		die "gap specified even if off($buf->{start}) == last.end"
 	    }
-	    $part->{pass} == IMP_MAXOFFSET and die 
+	    $part->{pass} == IMP_MAXOFFSET and die
 		"pass infinite should have been optimized by removing part[$dir][$pi]";
 	}
 
@@ -502,11 +502,11 @@ sub new_analyzer {
 	    @$ibuf == 1 or die "empty dummy buffer should only be at beginning";
 	    @$ibuf = $buf;
 
-	} elsif ( ! $buf->{gap} 
+	} elsif ( ! $buf->{gap}
 	    and $buf->{data} eq ''
-	    and $buf->{rtype} == $lbuf->{rtype} 
-	    and $buf->{dtype} == $lbuf->{dtype} 
-	    and $buf->{dtype} < 0 
+	    and $buf->{rtype} == $lbuf->{rtype}
+	    and $buf->{dtype} == $lbuf->{dtype}
+	    and $buf->{dtype} < 0
 	    and ! $buf->{eof}
 	    ) {
 	    # just update eof,[g]end of lbuf
@@ -531,7 +531,7 @@ sub new_analyzer {
 	    my $rl = $part->{replace_later};
 	    for(@$ibuf) {
 		next if $_->{start} < $lend;
-		die "last_end should be on buffer boundary" 
+		die "last_end should be on buffer boundary"
 		    if $_->{start} > $lend;
 		$lend = $_->{end};
 		$DEBUG && debug("analyzer[$dir][$pi] << %d bytes %s \@%d%s -> last_end=%d",
@@ -545,7 +545,7 @@ sub new_analyzer {
 		    $_->{gap} ? $_->{start}:0,
 		    $_->{dtype}
 		);
-		$imp[$pi]->data($dir,'',0, $_->{dtype}) 
+		$imp[$pi]->data($dir,'',0, $_->{dtype})
 		    if $buf->{eof} && $_->{data} ne '';
 		$rl or next;
 		if ( $rl == IMP_MAXOFFSET or $rl>= $lend ) {
@@ -582,7 +582,7 @@ sub new_analyzer {
 		for ( @{$part->{ibuf}} ) {
 		    if ( $_->{start} <= $offset ) {
 			$offset = ( $_->{rtype} == IMP_REPLACE )
-			    ? $_->{gstart} 
+			    ? $_->{gstart}
 			    : $_->{gstart} - $_->{start} + $offset;
 		    } else {
 			last
@@ -614,7 +614,7 @@ sub new_analyzer {
 			$part->{prepass} = 0; # pass >= prepass
 		    } elsif ( $offset > $part->{pass} ) {
 			$part->{pass} = $offset;
-			if ( $part->{prepass} != IMP_MAXOFFSET 
+			if ( $part->{prepass} != IMP_MAXOFFSET
 			    and $part->{prepass} <= $offset ) {
 			    $part->{prepass} = 0; # pass >= prepass
 			}
@@ -638,14 +638,14 @@ sub new_analyzer {
 	    } elsif ( $rtype == IMP_REPLACE ) {
 		my ($dir,$offset,$newdata) = @$rv;
 		$DEBUG && debug("callback[$dir][$pi] $rtype $dir $offset len=%d",length($newdata));
-		ref(my $part = $parts[$dir][$pi]) 
+		ref(my $part = $parts[$dir][$pi])
 		    or die "called replace for passed data";
 		my $ibuf = $part->{ibuf};
 
 		# sanity checks
 		die "called replace although pass=IMP_MAXOFFSET" if ! $part;
 		die "no replace with IMP_MAXOFFSET" if $offset == IMP_MAXOFFSET;
-		die "called replace for already passed data" 
+		die "called replace for already passed data"
 		    if $ibuf->[0]{start} > $offset;
 
 		while (@$ibuf) {
@@ -656,7 +656,7 @@ sub new_analyzer {
 			if ( ! defined($buf->{data}) or $buf->{data} ne $newdata ) {
 			    $buf->{rtype} = IMP_REPLACE;
 			    $buf->{data} = $newdata;
-			    $part->{adjust} += 
+			    $part->{adjust} +=
 				length($newdata) - ( $buf->{end} - $buf->{start});
 			    $newdata = ''; # in the next buffers replace with ''
 			}
@@ -666,8 +666,8 @@ sub new_analyzer {
 			    # all bufs eaten
 			    die "called replace for future data" if $buf->{end}<$offset;
 			    @$ibuf = $new_buf->( %$buf,
-				data   => '', 
-				start  => $buf->{end}, 
+				data   => '',
+				start  => $buf->{end},
 				end    => $buf->{end},
 				gstart => $buf->{gend},
 				# packet types cannot get partial replacement at end
@@ -689,16 +689,16 @@ sub new_analyzer {
 	    } elsif ( $rtype == IMP_REPLACE_LATER ) {
 		my ($dir,$offset) = @$rv;
 		$DEBUG && debug("callback[$dir][$pi] $rtype $offset");
-		ref(my $part = $parts[$dir][$pi]) 
+		ref(my $part = $parts[$dir][$pi])
 		    or die "called replace for passed data";
 		my $ibuf = $part->{ibuf};
-		$_->{replace_later} = IMP_MAXOFFSET and next; # no change
+		$_->{replace_later} == IMP_MAXOFFSET and next; # no change
 
 		# sanity checks
-		die "called replace_later although pass=IMP_MAX_OFFSET" 
+		die "called replace_later although pass=IMP_MAX_OFFSET"
 		    if ! $part;
-		die "called replace for already passed data" if 
-		    $offset != IMP_MAXOFFSET and 
+		die "called replace for already passed data" if
+		    $offset != IMP_MAXOFFSET and
 		    $ibuf->[0]{start} > $offset;
 
 		if ( $offset == IMP_MAXOFFSET ) {

@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.621';
+our $VERSION = '0.622';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -84,11 +84,11 @@ use constant IMP_FATAL        => dualvar(0x1102,"fatal");
 # these return values still gets send if the data provider is busy
 # the most important are on top
 use constant IMP_PASS_IF_BUSY => [
-    IMP_FATAL, 
-    IMP_DENY, 
-    IMP_DROP, 
-    IMP_PAUSE, 
-    IMP_CONTINUE, 
+    IMP_FATAL,
+    IMP_DENY,
+    IMP_DROP,
+    IMP_PAUSE,
+    IMP_CONTINUE,
     IMP_ACCTFIELD
 ];
 

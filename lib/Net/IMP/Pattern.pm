@@ -111,7 +111,7 @@ sub new_analyzer {
 sub data {
     my Net::IMP::Pattern $self = shift;
     my ($dir,$data,$offset,$type) = @_;
-    
+
     $offset and die "cannot deal with gaps in data";
 
     # if this is the wrong dir return, we already issued PASS
@@ -138,8 +138,8 @@ sub data {
     } else {
 	# streaming data, match can span multiple chunks
 	$buf = ( $self->{buf}[$dir] .= $data );
-    } 
-    
+    }
+
     $DEBUG && debug("got %d bytes $type on %d, bufsz=%d, rxlen=%d",
 	length($data),$dir,length($buf),$self->{rxlen});
 

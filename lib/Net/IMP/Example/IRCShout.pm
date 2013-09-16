@@ -88,7 +88,7 @@ sub shout {
 
 __END__
 
-=head1 NAME 
+=head1 NAME
 
 IRCShout - make IRC shout to others
 
