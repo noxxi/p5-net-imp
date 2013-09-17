@@ -108,6 +108,7 @@ my $raw = Net::Inspect::L3::IP->new(@l4>1 ? \@l4:@l4);
 my $pc  = Net::Inspect::L2::Pcap->new($pcap_in,$raw);
 
 my $time;
+my @tcpconn;
 pcap_loop($pcap_in,-1,sub {
     my (undef,$hdr,$data) = @_;
     if ( ! $time || $hdr->{tv_sec}-$time>10 ) {
@@ -115,6 +116,12 @@ pcap_loop($pcap_in,-1,sub {
     }
     return $pc->pktin($data,$hdr);
 },undef);
+
+for(@tcpconn) {
+    $_ or next;
+    $_->_connect;
+    $_->_close;
+}
 
 
 package ConnWriter;
@@ -135,6 +142,13 @@ sub new_connection {
 	$meta->{saddr}, $meta->{sport},
 	$meta->{daddr}, $meta->{dport},
     );
+
+    # collect open connections to destroy them before pcap writer
+    # gets destroyed
+    @tcpconn = grep { $_ } @tcpconn;
+    push @tcpconn,$pcap;
+    Scalar::Util::weaken( $tcpconn[-1] );
+
     return $self->new($pcap,$imp);
 }
 
