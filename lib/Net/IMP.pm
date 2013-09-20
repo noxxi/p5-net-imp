@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.622';
+our $VERSION = '0.622_1';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -81,7 +81,7 @@ use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 use constant IMP_FATAL        => dualvar(0x1102,"fatal");
 
-# these return values still gets send if the data provider is busy
+# these return values still gets sent if the data provider is busy
 # the most important are on top
 use constant IMP_PASS_IF_BUSY => [
     IMP_FATAL,
@@ -116,6 +116,15 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
     my %atoi = map {( "$_" => $_+0 )} @dualvars;
     my %itoa = map {( $_+0 => "$_" )} @dualvars;
 
+    # $basename - name which gets used in constant name, e.g. 'http' makes
+    # IMP_DATA_HTTP_..... Best would be name of IP service.
+    # - if name[number] will use number as base type number
+    # - if name[other_name+number] will base types on already defined
+    #   types with number added as offset
+    # - if no number given will try to use port name from getservbyname
+    # @def: list of defname => [+-]offset which will result in a definition
+    # of IMP_DATA_BASENAME_DEFNAME => [+-](base+offset), e.g. '+' for packet
+    # types and '-' for stream types
     sub IMP_DATA {
 	my ($basename,@def) = @_;
 	my $basenum;
@@ -268,7 +277,7 @@ Net::IMP - Inspection and Modification Protocol
     }
 
     ######################################################################
-    # definition of new data types suites
+    # definition of new data type suites
     ######################################################################
     package Net::IMP::HTTP;
     use Net::IMP 'IMP_DATA';
@@ -311,7 +320,7 @@ offset got used in the result and thus data up to this offset can be passed.
 
 =item *
 
-The results get usually propagated back to the data provider using a callback
+The results usually get propagated back to the data provider using a callback
 set with C<set_callback>.
 If no callback is set, the data provider must poll the results with the
 C<poll_results> method.
@@ -324,7 +333,7 @@ C<poll_results> method.
 
 =item Data Provider
 
-The process, which receives the input streams from client and server, feeds the
+The process that receives the input streams from client and server, feeds the
 analyzer, processes the results from the analyzer and forwards the resulting
 streams to server and client.
 Typical examples are proxies or Intrusion Detection Systems (IDS).
@@ -404,8 +413,8 @@ buffer if they already contain the pattern.
 In this case the issue can be dealt internally and there is no need to send
 this reply to the data provider.
 
-If the data provider receives this result, it should check all data it has
-still in the buffer (e.g. which were not passed) wether they contain the
+If the data provider receives this result, it should check all data it still
+has in the buffer (e.g. which were not passed) whether they contain the
 pattern.
 If the data provider finds the pattern, it should call C<data> with an explicit
 offset, so that the analyzer can resynchronize the position in the data
@@ -414,11 +423,11 @@ stream.
 =item [ IMP_REPLACE, $dir, $offset, $data ]
 
 Ignore the original data up to $offset, instead send C<$data>.
-C<$offset> needs be be in the range of the data the analyzer got through
+C<$offset> needs to be in the range of the data the analyzer got through
 C<data> method, e.g. replacement of future data is not possible.
 Neither is a replacement of already forwarded data possible, but C<$offset> can
 be at the position of the last pass, replace etc to insert new data into the
-data stream where no data have been (typically at eof).
+data stream where before there was no data (typically at eof).
 
 =item [ IMP_PREPASS, $dir, $offset ]
 
@@ -476,7 +485,7 @@ analyzer until a matching C<IMP_CONTINUE> is received.
 This should be used, if the analyzer has enough data to process, but the
 processing will take some time (like with DNS lookups).
 The data provider then might stop receiving data by itself.
-While the data provider can ignore this result a feeding of too much data into
+While the data provider can ignore this result, feeding too much data into
 the analyzer might result in out of memory situations.
 
 =item [ IMP_CONTINUE,$dir ]
@@ -486,7 +495,7 @@ again, e.g. will be called after a matching C<IMP_PAUSE>.
 
 =item [ IMP_REPLACE_LATER, $dir, $offset, $endoffset ]
 
-This is a promise, that sometimes later a replacement will be send for the data
+This is a promise, that sometime later a replacement will be send for the data
 starting at C<$offset> and ending at C<$endoffset>. Based on this promise the
 data provider might just forget the data and thus save memory.
 Like with C<IMP_PAUSE> the data provider might ignore this return value.
@@ -527,7 +536,7 @@ compared to IMP_PASS.
 =head2 API Definition
 
 The following API needs to be implemented by all IMP plugins.
-C<$class>, C<$factory> and C<$analyzer> in the following might be (objects of)
+C<$class>, C<$factory> and C<$analyzer>, as seen below, might be (objects of)
 different classes, but don't need to.
 The C<Net::IMP::Base> implementation uses the same class for plugin, factory and
 analyzer.
@@ -557,7 +566,7 @@ the same factory.
 
 =item $factory->get_interface(@provider_if) => @plugin_if
 
-This gets the interfaces supported by the factory and matches them with the
+This matches the interfaces supported by the factory with the
 interfaces supported by the data provider.
 Each interface consists of C<< [ $input_type, \@output_types ] >>, where
 
@@ -578,7 +587,7 @@ supports any result types for the given C<$input_type>.
 
 =back
 
-If called without arguments, e.g. C<@provider_if> beeing empty, the method will
+If called without arguments, e.g. with an empty C<@provider_if>, the method will
 return all the interfaces supported by the factory.
 Only in this case an interface description with no <$input_type>
 might be returned, which means, that all data types are supported.
@@ -589,7 +598,7 @@ subset of these interfaces, which are also supported by the plugin.
 =item $factory->set_interface($want_if) => $new_factory
 
 This will return a factory object supporting the given interface.
-This factory might be the same as as original factory, but might also be
+This factory might be the same as the original factory, but might also be
 a different factory, which translates data types.
 
 If the interface is not supported it will return undef.
@@ -627,7 +636,7 @@ If no callback is given, the results need to be polled with C<poll_results>.
 
 Forwards new data to the analyzer.
 C<$dir> is the direction, e.g. 0 from client and 1 from server.
-C<$data> are the data.
+C<$data> is the data.
 C<$data> of '' means end of data.
 
 C<$offset> is the current position (octet) in the data stream.
@@ -644,13 +653,13 @@ There are two global data type definitions:
 =item IMP_DATA_STREAM (-1)
 
 This is for generic streaming data, e.g. chunks from these datatypes can be
-concatinated and analyzed together, parts can be replaced etc.
+concatenated and analyzed together, parts can be replaced etc.
 
 =item IMP_DATA_PACKET (+1)
 
 This is for generic packetized data, where each chunk (e.g. call to C<data>)
 contains a single packet, which should be analyzed as a separate entity.
-This means no concatinating with previous or future chunks and no replacing of
+This means no concatenating with previous or future chunks and no replacing of
 only parts of the packet.
 
 Also, any offsets given in calls to C<data> or in the results should be at
@@ -664,7 +673,7 @@ and will probably cause an exception.
 
 All other data types are considered either subtypes of IMP_DATA_PACKET
 (value >0) or of IMP_DATA_STREAM (value<0) and share their restrictions.
-Also only streaming data of the same type can be concatinated and
+Also only streaming data of the same type can be concatenated and
 analyzed together.
 
 Results will be delivered through the callback or via C<poll_results>.
@@ -684,7 +693,7 @@ which might resolve the busy state, like IMP_DENY, IMP_FATAL etc
 
 =item Net::IMP->set_debug
 
-This is just a convinient way to call C<< Net::IMP::Debug->set_debug >>.
+This is just a convenient way to call C<< Net::IMP::Debug->set_debug >>.
 See L<Net::IMP::Debug> for more information.
 
 =back
