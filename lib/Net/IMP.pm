@@ -121,7 +121,8 @@ use constant IMP_LOG_EMERG    => dualvar(8,'emergency');
     # - if name[number] will use number as base type number
     # - if name[other_name+number] will base types on already defined
     #   types with number added as offset
-    # - if no number given will try to use port name from getservbyname
+    # - if no number given it will use port name from getservbyname,
+    #   multiplied with 0x10000 and die if no such service is defined
     # @def: list of defname => [+-]offset which will result in a definition
     # of IMP_DATA_BASENAME_DEFNAME => [+-](base+offset), e.g. '+' for packet
     # types and '-' for stream types
