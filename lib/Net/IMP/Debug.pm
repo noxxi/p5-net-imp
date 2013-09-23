@@ -177,7 +177,7 @@ C<$myDEBUG> needs to be a global variable, lexical variables will not work.
 
 =item rxvar => \$myDEBUG_RX
 
-This make the local C<$DEBUG_RX> variable an alias for C<$myDEBUG_RX>.
+This makes the local C<$DEBUG_RX> variable an alias for C<$myDEBUG_RX>.
 C<$myDEBUG_RX> needs to be a global variable, lexical variables will not work.
 
 =item sub => \&my_debug

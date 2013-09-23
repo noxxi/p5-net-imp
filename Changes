@@ -1,4 +1,9 @@
-0.622 2013/09/..
+0.623 2013/09/23
+- ProtocolPinning now has support for packet types.
+  Contrary to stream types a rule must match whole packet, no more and no less.
+  Configuration keys allow_dup and allow_reorder for unreliable packet
+  transports like UDP.
+0.622 2013/09/16
 - Bugfix Cascade
 0.621 2013/07/16
 - rewrite of Net::IMP::Cascade for hopefully less bugs and better design

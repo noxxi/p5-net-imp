@@ -50,7 +50,7 @@ sub new {
 	imp   => $imp,    # analyzer object
 	buf   => [
 	    # list of buffered data [ offset,buf,type ] per dir
-	    # buffers for same streaming type will be concatinated
+	    # buffers for same streaming type will be concatenated
 	    [ [0,'',0] ],
 	    [ [0,'',0] ],
 	],
@@ -319,11 +319,11 @@ Net::IMP::Filter - simple data filter using Net::IMP analyzers
 
 =head1 DESCRIPTION
 
-C<Net::IMP::Filter> is a class which can be used for simple filters (e.g. data in,
-data out) using Net::IMP analyzers, thus hiding the complexity but also useful
-features of the Net::IMP interface for simple use cases.
-To create such a filter subclass from C<Net::IMP::Filter> and implement any of the
-following methods (which by default do nothing)
+C<Net::IMP::Filter> is a class which can be used for simple filters (e.g. data
+in, data out) using Net::IMP analyzers, thus hiding the complexity but also
+useful features of the Net::IMP interface for simple use cases.
+To create such a filter subclass from C<Net::IMP::Filter> and implement any of
+the following methods (which by default do nothing):
 
 =over 4
 
@@ -346,6 +346,24 @@ this gets called on IMP_LOG
 =item acctfld($self,$key,$value)
 
 this gets called on IMP_ACCTFIELD
+
+=back
+
+To use the module the following subroutines are defined
+
+=over 4
+
+=item new($class,$factory,%args) 
+
+This function creates a new filter object. 
+C<%args> will be put as keys into the objects hash and thus be available to the
+methods described above.
+
+=item in($self,$dir,$data,$type)
+
+This method puts new data C<$data> for direction C<$dir> with type C<$type> into
+the filter object, which will then send it to the analyzer and finally result in
+calls to C<out>, C<deny>, C<log> etc.
 
 =back
 

@@ -8,9 +8,11 @@ use fields (
     'factory_args', # arguments given to new_factory
     'meta',         # hash with meta data given to new_analyzer
     'analyzer_cb',  # callback, set from new_analyzer or with set_callback
-    'analyzer_rv',  # collected results for polling or callback, set from add_results
-    'ignore_rv',    # hash with return values like IMP_PAUSE or IMP_REPLACE_LATER,
-		    # which are unsupported by the data provider and can be ignored
+    'analyzer_rv',  # collected results for polling or callback, set
+		    # from add_results
+    'ignore_rv',    # hash with return values like IMP_PAUSE or
+		    # IMP_REPLACE_LATER which are unsupported by the data
+		    # provider and can be ignored
     'busy',         # if data provider is busy
 );
 

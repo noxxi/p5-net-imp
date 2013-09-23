@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.622_1';
+our $VERSION = '0.623';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -81,7 +81,7 @@ use constant IMP_DENY         => dualvar(0x1100,"deny");
 use constant IMP_DROP         => dualvar(0x1101,"drop");
 use constant IMP_FATAL        => dualvar(0x1102,"fatal");
 
-# these return values still gets sent if the data provider is busy
+# these return values still get sent if the data provider is busy
 # the most important are on top
 use constant IMP_PASS_IF_BUSY => [
     IMP_FATAL,
@@ -496,7 +496,7 @@ again, e.g. will be called after a matching C<IMP_PAUSE>.
 
 =item [ IMP_REPLACE_LATER, $dir, $offset, $endoffset ]
 
-This is a promise, that sometime later a replacement will be send for the data
+This is a promise, that sometime later a replacement will be sent for the data
 starting at C<$offset> and ending at C<$endoffset>. Based on this promise the
 data provider might just forget the data and thus save memory.
 Like with C<IMP_PAUSE> the data provider might ignore this return value.
@@ -593,8 +593,8 @@ return all the interfaces supported by the factory.
 Only in this case an interface description with no <$input_type>
 might be returned, which means, that all data types are supported.
 
-If called with a list of interfaces the data provider supports, it will return the
-subset of these interfaces, which are also supported by the plugin.
+If called with a list of interfaces the data provider supports, it will return
+the subset of these interfaces, which are also supported by the plugin.
 
 =item $factory->set_interface($want_if) => $new_factory
 
