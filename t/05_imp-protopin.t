@@ -116,8 +116,65 @@ my @testdef = (
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
-    },
-    {
+    }, {
+	id => 'extend_match2',
+	ignore_order => 0,
+	max_unbound => [0,0],
+	rules => [
+	    { dir => 0, rxlen => 2, rx => qr/A+/ },
+	    { dir => 0, rxlen => 10, rx => qr/B+/ }
+	],
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'B' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    }, {
+	id => 'extend_match3',
+	rules => [
+	    { dir => 0, rxlen => 10, rx => qr/A+/ },
+	    { dir => 1, rxlen => 10, rx => qr/B+/ }
+	],
+	in => [
+	    [ 0,'A' ],
+	    [ 1,'B' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },{
+	id => 'extend_match4',
+	ignore_order => 1,
+    },{
+	id => 'extend_match5',
+	ignore_order => 0,
+	rules => [
+	    { dir => 0, rxlen => 6, rx => qr/AAA(BBB)?/ },
+	    { dir => 0, rxlen => 6, rx => qr/CCC(DDD)?/ },
+	    { dir => 1, rxlen => 1, rx => qr/./ },
+	    { dir => 0, rxlen => 3, rx => qr/EEE/ },
+	],
+	in => [
+	    [ 0,'AAAB' ],
+	    [ 0,'BBC' ],
+	    [ 0,'CC' ],
+	    [ 1,'X' ],
+	    [ 0,'DDD' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,3 ],
+	    [ IMP_PASS,0,6 ],
+	    [ IMP_PASS,0,9 ],
+	    [ IMP_PASS,1,1 ],
+	    [ IMP_DENY,0,"rule#3 did not match" ],
+	],
+    },{
 	id => 'capture',
 	max_unbound => [0,0],
 	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
@@ -151,9 +208,9 @@ my @testdef = (
     {
 	id => 'eof2',
 	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
-	rules => [ 
+	rules => [
 	    { dir => 1, rxlen => 1, rx => qr/A/ },
-	    { dir => 1, rxlen => 1, rx => qr/B/ }, 
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
 	],
 	in => [[1,'A'],[1,'']],
 	rv => [

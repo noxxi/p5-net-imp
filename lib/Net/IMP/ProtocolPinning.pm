@@ -168,10 +168,10 @@ sub _match_stream {
 	if ( $$rbuf =~m{\A$r->{rx}}g ) {
 	    # might match later again and more
 	    my $lm = pos($$rbuf);
-	    $DEBUG && debug("temporal match of $lm in $lbuf bytes");
+	    $DEBUG && debug("preliminary match of $lm in $lbuf bytes");
 	    return ($lm,0); # (matched,removed=0)
 	}
-	$DEBUG && debug("temporal failed match in $lbuf bytes");
+	$DEBUG && debug("preliminary failed match in $lbuf bytes");
 	return (0,0); # could match if more data
     }
 }
@@ -200,10 +200,6 @@ sub data {
     # never did IMP_PASS into future, so no offset allowed
     $offset and die "no offset allowed";
 
-    $DEBUG && debug("dir=%d rules=%s |data=%d/'%s'",
-	$dir,Data::Dumper->new([$self->{ruleset}])->Indent(0)->Terse(1)->Dump,
-	length($data),$data);
-
     my $rs = $self->{ruleset}[$dir];   # [r]ule[s]et
     my $rules = $self->{factory_args}{rules};
     my $match = $type>0 ? \&_match_packet:\&_match_stream;
@@ -211,6 +207,9 @@ sub data {
     if ($data eq '' ) {
 	# eof - remove leading rule with extendable match and then
 	# check if all rules are done
+	$DEBUG && debug("eof dir=%d rules=%s", $dir,
+	    Data::Dumper->new([$self->{ruleset}])->Indent(0)->Terse(1)->Dump);
+
 	if ( @$rs and my $match_in_progress =
 	    $self->{off_passed}[$dir] - $self->{off_buf}[$dir] ) {
 	    # rule done
@@ -228,15 +227,29 @@ sub data {
 	# still unmatched rules but we have eof, thus no more rules
 	# can match on this dir
 	$self->{buf} = undef;
-	$self->run_callback([
-	    IMP_DENY,
-	    $dir,
-	    "eof on $dir but unmatched rule#@{$rs->[0]}"
-	]);
+	if ( $rs->[0] ) {
+	    $self->run_callback([
+		IMP_DENY,
+		$dir,
+		"eof on $dir but unmatched rule#@{$rs->[0]}"
+	    ]);
+	} else {
+	    # report unmatched rules on other side
+	    my $ors = $self->{ruleset}[$dir?0:1];
+	    $self->run_callback([
+		IMP_DENY,
+		$dir,
+		"eof on $dir but unmatched rule#@{$ors->[0]}"
+	    ]);
+	}
 	return;
     }
 
     NEXT_RULE:
+    $DEBUG && debug("next rule dir=%d rules=%s |data=%d/'%s'",
+	$dir,Data::Dumper->new([$self->{ruleset}])->Indent(0)->Terse(1)->Dump,
+	length($data),substr($data,0,100));
+
     if ( ! @$rs ) {
 	# no (more) rules for $dir, accumulate data until all rules for other
 	# direction are completed
@@ -279,12 +292,12 @@ sub data {
     if ( ! $crs ) {
 	# data from $dir are not allowed at this stage
 
-	# finish a temporal match on the other side and then try again
+	# finish a preliminary match on the other side and then try again
 	my $odir = $dir ? 0:1;
 	my $ors = $self->{ruleset}[$odir];
 	if ( @$ors and $ors->[0] and my $omatch_in_progress
 	    = $self->{off_passed}[$odir] - $self->{off_buf}[$odir] ) {
-	    $DEBUG && debug("finish temporal match on $odir");
+	    $DEBUG && debug("finish preliminary match on $odir");
 	    $self->{off_buf}[$odir] = $self->{off_passed}[$odir];
 	    substr($self->{buf}[$odir],0,$omatch_in_progress,'');
 	    shift(@{$ors->[0]});
@@ -327,7 +340,7 @@ sub data {
 	    die "expected $crs->[0] to match" if ! $matched;
 	    if ( $removed ) {
 		# rule finished, probably because rxlen reached
-		$DEBUG && debug("completed temporal match rule $crs->[0]");
+		$DEBUG && debug("completed preliminary match rule $crs->[0]");
 		$self->{off_buf}[$dir] += $removed;
 		if ( $removed > $match_in_progress ) {
 		    $self->run_callback([
@@ -340,7 +353,7 @@ sub data {
 
 	    } elsif ( $matched > $match_in_progress ) {
 		# keep rule open but issue extended IMP_PASS
-		$DEBUG && debug("extended temporal match rule $crs->[0]");
+		$DEBUG && debug("extended preliminary match rule $crs->[0]");
 		$self->run_callback([
 		    IMP_PASS,
 		    $dir,
@@ -349,7 +362,7 @@ sub data {
 		return; # need more data
 	    } else {
 		# keep rule open waiting for more data
-		$DEBUG && debug("still temporal(?) match rule $crs->[0]");
+		$DEBUG && debug("still preliminary(?) match rule $crs->[0]");
 		return; # need more data
 	    }
 
@@ -366,8 +379,11 @@ sub data {
 	shift(@$crs);
 	if (! @$crs) {
 	    shift(@$rs);
-	    my $ors = $self->{ruleset}[$dir ? 0:1];
-	    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+	    # switch to other dir if this dir is done for now
+	    if ( ! @$rs || ! $rs->[0] ) {
+		my $ors = $self->{ruleset}[$dir ? 0:1];
+		shift @$ors if @$ors && ! $ors->[0];
+	    }
 	}
 	if ( $type>0 or $self->{buf}[$dir] ne '' ) {
 	    # unmatched data exist in data/buf
@@ -415,8 +431,11 @@ sub data {
 		    $DEBUG && debug(
 			"full match rule $crs->[$i] - remove ruleset");
 		    shift(@$rs);
-		    my $ors = $self->{ruleset}[$dir ? 0:1];
-		    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+		    # switch to other dir if this dir is done for now
+		    if ( ! @$rs || ! $rs->[0] ) {
+			my $ors = $self->{ruleset}[$dir ? 0:1];
+			shift @$ors if @$ors && ! $ors->[0];
+		    }
 		}
 
 		# pass data
@@ -461,6 +480,7 @@ sub data {
     } else {
 	# streaming data
 	my $temp_fail;
+	my $final_match;
 	for( my $i=0;$i<@$crs;$i++ ) {
 	    my ($len,$removed)
 		= $match->($rules->[$crs->[$i]],\$self->{buf}[$dir]);
@@ -475,7 +495,7 @@ sub data {
 	    }
 
 	    if ( ! $removed and @$crs == 1 and @$rs == 1 ) {
-		# last rule for dir - no need to extend temporal matches
+		# last rule for dir - no need to extend preliminary matches
 		# as long as max_unbound is not restrictive
 		my $ma = $self->{factory_args}{max_unbound};
 		if ( ! defined( $ma && $ma->[$dir] )) {
@@ -493,6 +513,27 @@ sub data {
 		# advance off_passed, but keep off_buf
 		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] + $len;
 
+		# if this is was the last completly open rule we don't need
+		# to check if the matched could be extended
+		if (@$crs == 1 and @$rs == 1 ) {
+		    # last rule on this side
+		    my $ors = $self->{ruleset}[$dir?0:1];
+		    if (
+			# other side has no rules
+			! @$ors
+			# other side has empty rule
+			or @$ors == 1 and ! $ors->[0]
+			# other side has single rule which matched already
+			or @$ors == 1 and @{ $ors->[0] } == 1 and
+			    $self->{off_passed}[$dir?0:1]
+			    - $self->{off_buf}[$dir?0:1] > 0 ) {
+
+			# we are done and there is no need to extend the match
+			@$ors = @$rs = ();
+			goto CHECK_DONE;
+		    }
+		}
+
 	    } else {
 		# final match of rule
 		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] += $len;
@@ -506,11 +547,14 @@ sub data {
 		    $DEBUG && debug(
 			"full match rule $crs->[$i] - remove ruleset");
 		    shift(@$rs);
-		    my $ors = $self->{ruleset}[$dir ? 0:1];
-		    shift @$ors if @$ors && ! $ors->[0]; # switch to other dir
+		    # switch to other dir if this dir is done for now
+		    if ( ! @$rs || ! $rs->[0] ) {
+			my $ors = $self->{ruleset}[$dir ? 0:1];
+			shift @$ors if @$ors && ! $ors->[0];
+		    }
 		}
-		# allow_dup: put it in @matched only if it matched a packet,
-		# because dups make only sense for packet data
+		$final_match = 1;
+		# no allow_dup for streaming
 	    }
 
 	    # pass data
@@ -521,7 +565,7 @@ sub data {
 		$self->{off_passed}[$dir]
 	    ]);
 
-	    if ( $self->{buf}[$dir] ne '' ) {
+	    if ( $final_match and $self->{buf}[$dir] ne '' ) {
 		# try to match more
 		$data = $self->{buf}[$dir];
 		$self->{buf}[$dir] = '';
