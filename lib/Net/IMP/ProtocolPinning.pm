@@ -221,26 +221,27 @@ sub data {
 	    # remove ruleset if empty
 	    if (! @{$rs->[0]}) {
 		shift(@$rs);
+		# switch to other dir if this dir is done for now
+		if ( ! @$rs || ! $rs->[0] ) {
+		    my $ors = $self->{ruleset}[$dir?0:1];
+		    shift @$ors if @$ors && ! $ors->[0];
+		}
 		goto CHECK_DONE if ! @$rs;
 	    }
 	}
 	# still unmatched rules but we have eof, thus no more rules
 	# can match on this dir
-	$self->{buf} = undef;
-	if ( $rs->[0] ) {
+	if ( my ($r) = grep { $_ } @$rs ) {
+	    $self->{buf} = undef;
 	    $self->run_callback([
 		IMP_DENY,
 		$dir,
-		"eof on $dir but unmatched rule#@{$rs->[0]}"
+		"eof on $dir but unmatched rule#@{$r}"
 	    ]);
 	} else {
-	    # report unmatched rules on other side
-	    my $ors = $self->{ruleset}[$dir?0:1];
-	    $self->run_callback([
-		IMP_DENY,
-		$dir,
-		"eof on $dir but unmatched rule#@{$ors->[0]}"
-	    ]);
+	    # no more rules on eof side
+	    # as long as further rules on other side gets matched everything
+	    # is fine
 	}
 	return;
     }
@@ -333,7 +334,7 @@ sub data {
     if ( my $match_in_progress =
 	$self->{off_passed}[$dir] - $self->{off_buf}[$dir] ) {
 	# last rule matched already
-	if ( $type<0 ) {
+	unless ( $type>0 ) {
 	    # try to extend match for streams
 	    my ($matched,$removed) =
 		$match->($rules->[$crs->[0]],\$self->{buf}[$dir]);

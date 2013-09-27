@@ -217,8 +217,38 @@ my @testdef = (
 	    [IMP_PASS, 1, 1 ],
 	    [IMP_DENY, 1, 'eof on 1 but unmatched rule#1' ]
 	],
-    },
-    {
+    }, {
+	id => 'eof3',
+	rules => [
+	    { dir => 0, rxlen => 10, rx => qr/A+/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
+	    { dir => 0, rxlen => 10, rx => qr/C/ },
+	],
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'' ],
+	],
+	rv => [
+	    [IMP_PASS, 0, 1 ],
+	    [IMP_DENY, 0, 'eof on 0 but unmatched rule#2' ]
+	],
+    }, {
+	id => 'eof4',
+	rules => [
+	    { dir => 0, rxlen => 10, rx => qr/A+/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
+	],
+	in => [
+	    [ 0,'A' ],
+	    [ 0,'' ],
+	    [ 1,'B' ],
+	],
+	rv => [
+	    [IMP_PASS, 0, 1 ],
+	    [IMP_PASS, 0, IMP_MAXOFFSET ],
+	    [IMP_PASS, 1, IMP_MAXOFFSET ],
+	],
+    }, {
 	id => 'look_ahead',
 	dtype => [ IMP_DATA_STREAM ],
 	ignore_order => 1,
