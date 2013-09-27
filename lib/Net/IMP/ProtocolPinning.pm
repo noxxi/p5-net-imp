@@ -50,7 +50,7 @@ sub _compile_cfg {
     #   one matches.
     # - undef - no data for this dir allowed at this stage. If ignore_order
     #   there can be rules for each dir at the same time, else not.
-    # When processing data it will remove completly matched rules, but
+    # When processing data it will remove completely matched rules, but
     # put rules which might match more (e.g. data<rxlen) at the beginning.
     # If no more rules are open inside a ruleset it will remove the ruleset
     # and then
@@ -513,7 +513,7 @@ sub data {
 		# advance off_passed, but keep off_buf
 		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] + $len;
 
-		# if this is was the last completly open rule we don't need
+		# if this is was the last completely open rule we don't need
 		# to check if the matched could be extended
 		if (@$crs == 1 and @$rs == 1 ) {
 		    # last rule on this side
@@ -758,38 +758,38 @@ direction are matched.
 Using this parameter the amount of buffered data which cannot be bound to a rule
 will be limited per direction.
 
-If not set a default of unlimited will be used!
+If not set, a default of unlimited will be used!
 
 =back
 
 =head2 Process of Matching Input Against Rules
 
-When new data arrive from direction it will try to match them against the rule
+When new data arrive from direction, it will try to match them against the rule
 list as follows and stop as soon a rule matches:
 
-=item 4
+=over 4
 
 =item *
 
-If there is a previously matching rule which might extend its match it will be
+If there is a previously matching rule which might extend its match, it will be
 tried first (only for stream data).
 
 =item *
 
-If the next rule in the list of rules matches the incoming direction it will be
-tried to match. If C<ignore_order> is true the next rule for the incoming
+If the next rule in the list of rules matches the incoming direction, it will be
+tried to match. If C<ignore_order> is true, the next rule for the incoming
 direction will be used instead.
 
 =item *
 
-If C<allow_reorder> is true then all other rules until the next direction change
-in the rule list will be tried in the order of the rule list.
-If C<ignore_order> is true direction change in the rule list is ignored, e.g.
+If C<allow_reorder> is true, then all other rules until the next direction
+change in the rule list will be tried in the order of the rule list.
+If C<ignore_order> is true, direction change in the rule list is ignored, e.g.
 all remaining rules for the incoming direction are considered.
 
 =item *
 
-If C<allow_dup> is true then all already matched rules from the incoming
+If C<allow_dup> is true, then all already matched rules from the incoming
 direction are allowed to match again, but only if no other rules match.
 To detect matches a hash over all matched packets will be saved and later
 checked. To avoid targeted collisions the hash consists of the md5 of an
@@ -797,7 +797,7 @@ analyzer specific random seed and the data.
 
 =back
 
-If a rule matched the incoming data they will be passed using IMP_PASS.
+If a rule matched the incoming data, they will be passed using IMP_PASS.
 How the match gets executed and what happens if no rule matches depends on the
 data type:
 
@@ -806,18 +806,18 @@ data type:
 =item Stream Data
 
 For stream data it will match as much data as possible, e.g. the rule which
-matched last will be considered again if new data arrive in case the match might
-be extended. The rule will only be considered done if the C<rxlen> is reached, a
-direction change occured and C<ignore_order> is false or if it the last rule for
-the direction.
+matched last will be considered again if new data arrive, in case the match
+might be extended. The rule will only be considered done, if the C<rxlen> is
+reached, a direction change occured and C<ignore_order> is false or if it is
+the last rule for the direction.
 
 The rules are matched after each other, e.g. the new match will start where the
 last match finished.
 
 A useful value for C<rxlen> is necessary to not buffer too much data, because it
 is unable to detect if a rule does not even match the beginning of the incoming
-data. If no rules match the incoming data it will buffer up to the maximum
-C<rxlen> and only fail matching if it got more than C<rxlen> bytes of unmatched
+data. If no rules match the incoming data, it will buffer up to the maximum
+C<rxlen> and only fail matching, if it got more than C<rxlen> bytes of unmatched
 data and still no rule matches.
 
 C<allow_dup> and C<allow_reorder> will behave as documented, but because they
@@ -830,23 +830,23 @@ implicit C<\A> at the beginning and C<\Z> at the end of the regular expression.
 So there cannot be multiple rules matching the same packet after each other, nor
 can their be a rule spanning multiple packets.
 
-If no rule matches the incoming packet the matching will fail, e.g. no buffering
-and waiting for more data.
+If no rule matches the incoming packet, the matching will fail, e.g. no
+buffering and waiting for more data.
 
-If the packet stream is based on a protocol like UDP it is recommended to set
-C<allow_dup> and C<allow_reorder>, so that protocols match even if packets gets
+If the packet stream is based on a protocol like UDP, it is recommended to set
+C<allow_dup> and C<allow_reorder>, so that protocols match even if packets get
 resubmitted or arrive out of order.
 
 =back
 
-Only if all rules are matched the remaining data will be passed using IMP_PASS
+Only if all rules are matched, the remaining data will be passed using IMP_PASS
 with IMP_MAXOFFSET.
-If the matching failed an IMP_DENY is issued.
+If the matching failed, an IMP_DENY is issued.
 
 If only the rules from one direction matched so their are still outstanding
-rules for the other connection the data for the completed connection will not be
-passed yet. To limit the amount of data which needs be be buffered by the caller
-C<max_unbound> should be set.
+rules for the other connection, the data for the completed connection will not
+be passed yet. To limit the amount of data which needs to be buffered by the
+caller, C<max_unbound> should be set.
 Buffering more data than C<max_unbound> for this direction will cause a DENY.
 
 
