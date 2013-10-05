@@ -1,3 +1,8 @@
+0.624 2013/10/05
+- ProtocolPinning:
+  - fix bug for streaming mode if data call contained more data then necessary
+    to match last rule in dir (died with "buffer should be empty").  
+  - Added some more test and optimizations
 0.623 2013/09/23
 - ProtocolPinning now has support for packet types.
   Contrary to stream types a rule must match whole packet, no more and no less.

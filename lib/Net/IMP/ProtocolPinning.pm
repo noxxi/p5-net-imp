@@ -153,8 +153,11 @@ sub new_analyzer {
 # if matched and data are still in buffer (match may be longer) returns (size,0)
 sub _match_stream {
     my ($r,$rbuf) = @_;
-    $DEBUG && debug("try match rxlen=%d rx=%s buf=%d/'%s'",
-	$r->{rxlen},$r->{rx},length($$rbuf),$$rbuf);
+    if ( $DEBUG ) {
+	my ($pkg,undef,$line) = caller;
+	debug("try match from=%s[%d] rxlen=%d rx=%s buf=%d/'%s'",
+	    $pkg,$line, $r->{rxlen},$r->{rx},length($$rbuf),$$rbuf);
+    }
     my $lbuf = length($$rbuf);
     if ($r->{rxlen} <= $lbuf ) {
 	if ( substr($$rbuf,0,$r->{rxlen}) =~s{\A$r->{rx}}{} ) {
@@ -246,6 +249,9 @@ sub data {
 	return;
     }
 
+    # collect maximal offset to pass, will pass in PASS_AND_RETURN
+    my $pass_until;
+
     NEXT_RULE:
     $DEBUG && debug("next rule dir=%d rules=%s |data=%d/'%s'",
 	$dir,Data::Dumper->new([$self->{ruleset}])->Indent(0)->Terse(1)->Dump,
@@ -262,7 +268,7 @@ sub data {
 	if ( ! defined $max_unbound ) {
 	    $DEBUG && debug(
 		"buffer data for dir $dir because buffering not bound");
-	    return;
+	    goto PASS_AND_RETURN;
 	}
 
 	my $unbound = $self->{off_buf}[$dir] - $self->{off_passed}[$dir];
@@ -271,7 +277,7 @@ sub data {
 	if ( $unbound <= $max_unbound ) {
 	    $DEBUG && debug("buffer data for dir $dir because ".
 		"unbound($unbound)<=max_unbound($max_unbound)");
-	    return;
+	    goto PASS_AND_RETURN;
 	}
 
 	$self->{buf} = undef;
@@ -305,6 +311,7 @@ sub data {
 	    if ( ! @{$ors->[0]} ) {
 		shift(@$ors); # ruleset done
 		shift(@$rs) if ! @$ors or ! $ors->[0]; # switch dir
+		goto CHECK_DONE if ! @$ors && ! @$rs;
 		goto NEXT_RULE; # and try again
 	    }
 	}
@@ -316,10 +323,9 @@ sub data {
 	    my $hpkt = md5($self->{matched_seed} . $data);
 	    if ( defined( my $r = $matched->{$hpkt} )) {
 		$DEBUG && debug("ignored DUP[$dir] for rule $r");
-		$self->{off_passed}[$dir]
+		$pass_until = $self->{off_passed}[$dir]
 		    = $self->{off_buf}[$dir] += length($data);
-		$self->run_callback([ IMP_PASS,$dir,$self->{off_buf}[$dir] ]);
-		return;
+		goto PASS_AND_RETURN;
 	    }
 	}
 	$DEBUG && debug("data[$dir] but <undef> rule -> DENY");
@@ -344,27 +350,21 @@ sub data {
 		$DEBUG && debug("completed preliminary match rule $crs->[0]");
 		$self->{off_buf}[$dir] += $removed;
 		if ( $removed > $match_in_progress ) {
-		    $self->run_callback([
-			IMP_PASS,
-			$dir,
-			$self->{off_passed}[$dir] = $self->{off_buf}[$dir]
-		    ])
+		    $pass_until = $self->{off_passed}[$dir]
+			= $self->{off_buf}[$dir];
 		}
 		# no return, might match more
 
 	    } elsif ( $matched > $match_in_progress ) {
 		# keep rule open but issue extended IMP_PASS
 		$DEBUG && debug("extended preliminary match rule $crs->[0]");
-		$self->run_callback([
-		    IMP_PASS,
-		    $dir,
-		    $self->{off_passed}[$dir] = $self->{off_buf}[$dir]+$matched
-		]);
-		return; # need more data
+		$pass_until = $self->{off_passed}[$dir]
+		    = $self->{off_buf}[$dir]+$matched;
+		goto PASS_AND_RETURN; # need more data
 	    } else {
 		# keep rule open waiting for more data
 		$DEBUG && debug("still preliminary(?) match rule $crs->[0]");
-		return; # need more data
+		goto PASS_AND_RETURN; # need more data
 	    }
 
 	} else {
@@ -384,6 +384,7 @@ sub data {
 	    if ( ! @$rs || ! $rs->[0] ) {
 		my $ors = $self->{ruleset}[$dir ? 0:1];
 		shift @$ors if @$ors && ! $ors->[0];
+		goto CHECK_DONE if ! @$ors && ! @$rs;
 	    }
 	}
 	if ( $type>0 or $self->{buf}[$dir] ne '' ) {
@@ -396,7 +397,7 @@ sub data {
 	    }
 	    goto NEXT_RULE;
 	}
-	return; # wait for more data
+	goto PASS_AND_RETURN; # wait for more data
     }
 
     # check against current set
@@ -412,7 +413,8 @@ sub data {
 	for( my $i=0;$i<@$crs;$i++ ) {
 	    if ( my ($len) = $match->($rules->[$crs->[$i]],\$data)) {
 		# match
-		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] += $len;
+		$pass_until = $self->{off_passed}[$dir] =
+		    $self->{off_buf}[$dir] += $len;
 		if ( $self->{matched} ) {
 		    # preserve hash of matched packet so that duplicates are
 		    # detected later
@@ -441,12 +443,7 @@ sub data {
 
 		# pass data
 		goto CHECK_DONE if ! @$rs;
-		$self->run_callback([
-		    IMP_PASS,
-		    $dir,
-		    $self->{off_passed}[$dir]
-		]);
-		return;
+		goto PASS_AND_RETURN; # wait for more data
 	    }
 	}
 
@@ -454,17 +451,11 @@ sub data {
 	if ( $self->{matched} and my $dup = $self->{matched}[$dir] ) {
 	    my $r = $dup->{ md5($self->{matched_seed} . $data ) };
 	    if ( defined $r ) {
-		# matched again
-		$self->{off_passed}[$dir]
+		# matched again - pass data
+		$pass_until = $self->{off_passed}[$dir]
 		    = $self->{off_buf}[$dir] += length($data);
-		# pass data
 		$DEBUG && debug("ignore DUP[$dir] for rule $r");
-		$self->run_callback([
-		    IMP_PASS,
-		    $dir,
-		    $self->{off_passed}[$dir]
-		]);
-		return;
+		goto PASS_AND_RETURN; # wait for more data
 	    }
 	}
 
@@ -512,7 +503,8 @@ sub data {
 		unshift @$crs,splice(@$crs,$i,1) if $i>0;
 
 		# advance off_passed, but keep off_buf
-		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] + $len;
+		$pass_until = $self->{off_passed}[$dir]
+		    = $self->{off_buf}[$dir] + $len;
 
 		# if this is was the last completely open rule we don't need
 		# to check if the matched could be extended
@@ -537,7 +529,8 @@ sub data {
 
 	    } else {
 		# final match of rule
-		$self->{off_passed}[$dir] = $self->{off_buf}[$dir] += $len;
+		$pass_until = $self->{off_passed}[$dir]
+		    = $self->{off_buf}[$dir] += $len;
 		if (@$crs>1) {
 		    # remove rule, keep rest in ruleset
 		    $DEBUG && debug(
@@ -552,6 +545,7 @@ sub data {
 		    if ( ! @$rs || ! $rs->[0] ) {
 			my $ors = $self->{ruleset}[$dir ? 0:1];
 			shift @$ors if @$ors && ! $ors->[0];
+			goto CHECK_DONE if ! @$ors && ! @$rs;
 		    }
 		}
 		$final_match = 1;
@@ -559,20 +553,14 @@ sub data {
 	    }
 
 	    # pass data
-	    goto CHECK_DONE if ! @$rs;
-	    $self->run_callback([
-		IMP_PASS,
-		$dir,
-		$self->{off_passed}[$dir]
-	    ]);
-
 	    if ( $final_match and $self->{buf}[$dir] ne '' ) {
 		# try to match more
 		$data = $self->{buf}[$dir];
 		$self->{buf}[$dir] = '';
 		goto NEXT_RULE;
 	    }
-	    return;
+	    goto CHECK_DONE if ! @$rs;
+	    goto PASS_AND_RETURN;
 	}
 
 	if ( ! $temp_fail ) {
@@ -585,20 +573,15 @@ sub data {
 		"rule#@$crs did not match"
 	    ]);
 	}
-	return;
+	goto PASS_AND_RETURN;
     }
 
     CHECK_DONE:
     return if @$rs; # still unmatched rules
-    if ( @{$self->{ruleset}[ $dir ? 0:1 ] }) {
-	# pass only current data
-	$self->run_callback([
-	    IMP_PASS,
-	    $dir,
-	    $self->{off_passed}[$dir]
-	]);
-	return;
-    }
+
+    # pass only current data
+    goto PASS_AND_RETURN if @{$self->{ruleset}[ $dir ? 0:1 ] };
+
     # rulesets for both dirs are done, pass all data
     $DEBUG && debug("all rules done - pass rest");
     $self->{buf} = undef;
@@ -606,6 +589,12 @@ sub data {
 	[ IMP_PASS,0,IMP_MAXOFFSET ],
 	[ IMP_PASS,1,IMP_MAXOFFSET ]
     );
+    return;
+
+    PASS_AND_RETURN:
+    return if ! $pass_until;
+    $self->run_callback([ IMP_PASS, $dir, $pass_until ]);
+    return;
 }
 
 # cfg2str and str2cfg are redefined because our config hash is deeper

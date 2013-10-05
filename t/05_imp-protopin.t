@@ -33,7 +33,7 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     },{
-	id => 'wrong_dir',
+	id => 'wrong_dir.0',
 	in => [
 	    [1,'hund'],
 	    [0,'affe'],
@@ -71,7 +71,7 @@ my @testdef = (
 	    { dir => 1, rxlen => 100, rx => qr/SSH-2\.0.*/ }
 	],
     }, {
-	id => 'max_unbound.fit',
+	id => 'max_unbound.fit.0',
 	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	max_unbound => [4,], # "huhu" fits in 4 bytes
     }, {
@@ -79,7 +79,7 @@ my @testdef = (
 	max_unbound => [0,],
 	rv => [[IMP_DENY, 0, 'unbound buffer size=4 > max_unbound(0)' ]],
     }, {
-	id => 'max_unbound2.fit',
+	id => 'max_unbound.fit.1',
 	dtype => [ IMP_DATA_STREAM ],
 	max_unbound => [100,100],
 	rules => [
@@ -96,7 +96,7 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	id => 'extend_match',
+	id => 'extend_match.0',
 	max_unbound => [1,0],
 	rules => [
 	    { dir => 0, rxlen => 12, rx => qr/cloud(ella)?(ria)?/ },
@@ -117,7 +117,7 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	id => 'extend_match2',
+	id => 'extend_match.1',
 	ignore_order => 0,
 	max_unbound => [0,0],
 	rules => [
@@ -134,7 +134,7 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     }, {
-	id => 'extend_match3',
+	id => 'extend_match.2',
 	rules => [
 	    { dir => 0, rxlen => 10, rx => qr/A+/ },
 	    { dir => 1, rxlen => 10, rx => qr/B+/ }
@@ -149,10 +149,10 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     },{
-	id => 'extend_match4',
+	id => 'extend_match.3',
 	ignore_order => 1,
     },{
-	id => 'extend_match5',
+	id => 'extend_match.4',
 	ignore_order => 0,
 	rules => [
 	    { dir => 0, rxlen => 6, rx => qr/AAA(BBB)?/ },
@@ -192,21 +192,21 @@ my @testdef = (
 	rv => [[IMP_DENY, 0, 'rule#0 did not match' ]],
     },
     {
-	id => 'wrong_dir.2',
+	id => 'wrong_dir.1',
 	ignore_order => 0,
 	rules => [ { dir => 1, rxlen => 1, rx => qr/./ } ],
 	in => [[0,'foo']],
 	rv => [[IMP_DENY, 0, 'rule#0 data from wrong dir 0' ]],
     },
     {
-	id => 'eof',
+	id => 'eof.0',
 	dtype => [ IMP_DATA_STREAM ],
 	rules => [ { dir => 1, rxlen => 2, rx => qr/../ } ],
 	in => [[1,'X'],[1,'']],
 	rv => [[IMP_DENY, 1, 'eof on 1 but unmatched rule#0' ]],
     },
     {
-	id => 'eof2',
+	id => 'eof.1',
 	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	rules => [
 	    { dir => 1, rxlen => 1, rx => qr/A/ },
@@ -218,7 +218,7 @@ my @testdef = (
 	    [IMP_DENY, 1, 'eof on 1 but unmatched rule#1' ]
 	],
     }, {
-	id => 'eof3',
+	id => 'eof.2',
 	rules => [
 	    { dir => 0, rxlen => 10, rx => qr/A+/ },
 	    { dir => 1, rxlen => 1, rx => qr/B/ },
@@ -233,7 +233,7 @@ my @testdef = (
 	    [IMP_DENY, 0, 'eof on 0 but unmatched rule#2' ]
 	],
     }, {
-	id => 'eof4',
+	id => 'eof.3',
 	rules => [
 	    { dir => 0, rxlen => 10, rx => qr/A+/ },
 	    { dir => 1, rxlen => 1, rx => qr/B/ },
@@ -250,6 +250,7 @@ my @testdef = (
 	],
     }, {
 	id => 'look_ahead',
+	max_unbound => [],
 	dtype => [ IMP_DATA_STREAM ],
 	ignore_order => 1,
 	rules => [
@@ -352,7 +353,55 @@ my @testdef = (
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
-    }
+    },
+    {
+	id => 'more_at_end.0',
+	max_unbound => [],
+	ignore_order => 1,
+	dtype => [ IMP_DATA_STREAM ],
+	rules => [
+	    { dir => 0, rxlen => 1, rx => qr/A/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
+	],
+	in => [
+	    [ 0,'AA' ],
+	    [ 0,'AA' ],
+	    [ 1,'BB' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
+    {
+	id => 'more_at_end.1',
+	max_unbound => [0,0],
+	rv => [
+	    [ IMP_DENY,0,'unbound buffer size=1 > max_unbound(0)' ]
+	]
+    },
+    {
+	id => 'more_at_end.2',
+	max_unbound => [0,0],
+	ignore_order => 1,
+	dtype => [ IMP_DATA_STREAM ],
+	rules => [
+	    { dir => 0, rxlen => 4, rx => qr/A+/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
+	],
+	in => [
+	    [ 0,'AA' ],
+	    [ 0,'AA' ],
+	    [ 1,'BB' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,2 ],
+	    [ IMP_PASS,0,4 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
 );
 
 my %only = map { $_ => 1 } @ARGV;
