@@ -261,6 +261,16 @@ sub data {
 	# no (more) rules for $dir, accumulate data until all rules for other
 	# direction are completed
 	$self->{buf}[$dir] eq '' or die "buffer should be empty";
+
+	# check if other side has matched already with last rule
+	my $odir = $dir ? 0:1;
+	my $ors = $self->{ruleset}[$odir];
+	if ( @$ors == 1 and @{$ors->[0]} == 1
+	    and $self->{off_passed}[$odir] - $self->{off_buf}[$odir] >0 ) {
+	    shift(@$ors);
+	    goto CHECK_DONE;
+	}
+
 	$self->{off_buf}[$dir] += length($data);
 
 	my $max_unbound = $self->{factory_args}{max_unbound};

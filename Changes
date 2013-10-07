@@ -1,3 +1,7 @@
+0.625 2013/10/07
+- ProtocolPinning: fix bug for streaming mode if data call contained more data
+  then necessary to match last rule in dir and other dir had unfinshed match
+  on last rule
 0.624 2013/10/05
 - ProtocolPinning:
   - fix bug for streaming mode if data call contained more data then necessary

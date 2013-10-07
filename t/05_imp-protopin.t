@@ -402,6 +402,27 @@ my @testdef = (
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
     },
+    {
+	id => 'more_at_end.3',
+	max_unbound => [0,0],
+	ignore_order => 1,
+	dtype => [ IMP_DATA_STREAM ],
+	rules => [
+	    { dir => 0, rxlen => 1, rx => qr/A/ },
+	    { dir => 0, rxlen => 10, rx => qr/B.*C/ },
+	    { dir => 1, rxlen => 1, rx => qr/a/ },
+	    { dir => 1, rxlen => 10, rx => qr/b.*c/ },
+	],
+	in => [
+	    [ 0,'ABXXC' ],
+	    [ 1,'abxxcxxxxxxxxxxxxxxxxxxxx' ],
+	],
+	rv => [
+	    [ IMP_PASS,0,5 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
 );
 
 my %only = map { $_ => 1 } @ARGV;
