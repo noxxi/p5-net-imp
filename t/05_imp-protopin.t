@@ -60,6 +60,8 @@ my @testdef = (
 	    [ 1,"SSH-2.0-OpenSSH_5.9p1 Debian-5ubuntu1\n" ],
 	],
 	rv => [
+	    [ IMP_PAUSE,0 ],
+	    [ IMP_CONTINUE,0 ],
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
@@ -74,6 +76,10 @@ my @testdef = (
 	id => 'max_unbound.fit.0',
 	dtype => [ IMP_DATA_STREAM, IMP_DATA_PACKET ],
 	max_unbound => [4,], # "huhu" fits in 4 bytes
+	rv => [
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
     }, {
 	id => 'max_unbound.nofit',
 	max_unbound => [0,],
@@ -262,7 +268,9 @@ my @testdef = (
 	    [ 1,'b' ], [ 1,'arf' ], [ 1,'oobb' ],
 	],
 	rv => [
+	    [ IMP_PAUSE,0 ],
 	    [ IMP_PASS,0,3 ],             # foobar -> fwd 'foo'
+	    [ IMP_CONTINUE,0 ],
 	    [ IMP_PASS,0,IMP_MAXOFFSET ], # barfoo -> all done
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	]
@@ -369,7 +377,9 @@ my @testdef = (
 	    [ 1,'BB' ],
 	],
 	rv => [
+	    [ IMP_PAUSE,0 ],
 	    [ IMP_PASS,0,1 ],
+	    [ IMP_CONTINUE,0 ],
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],
@@ -419,6 +429,29 @@ my @testdef = (
 	],
 	rv => [
 	    [ IMP_PASS,0,5 ],
+	    [ IMP_PASS,0,IMP_MAXOFFSET ],
+	    [ IMP_PASS,1,IMP_MAXOFFSET ],
+	],
+    },
+    {
+	id => 'pause.0',
+	max_unbound => [],
+	rules => [
+	    { dir => 0, rxlen => 1, rx => qr/A/ },
+	    { dir => 1, rxlen => 1, rx => qr/B/ },
+	    { dir => 1, rxlen => 1, rx => qr/C/ },
+	],
+	in => [
+	    [ 0,'AXXXXXX' ],
+	    [ 1,'B' ],
+	    [ 0,'XXXXXX' ],
+	    [ 1,'C' ],
+	],
+	rv => [
+	    [ IMP_PAUSE,0 ],
+	    [ IMP_PASS,0,1 ],
+	    [ IMP_PASS,1,1 ],
+	    [ IMP_CONTINUE,0 ],
 	    [ IMP_PASS,0,IMP_MAXOFFSET ],
 	    [ IMP_PASS,1,IMP_MAXOFFSET ],
 	],

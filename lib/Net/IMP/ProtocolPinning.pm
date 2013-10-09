@@ -8,6 +8,7 @@ use fields (
     'off_buf',        # start of buf[dir] relativ to input stream
     'off_passed',     # offset up to which already passed
     'ruleset',        # active rules per dir
+    'paused',         # if there is active IMP_PAUSE for dir
     # if allow_dup already matched packets are put with key md5(seed+packet)
     # and rule number as value into matched[dir]{...}
     'matched',        # hash of already matched packets
@@ -21,10 +22,17 @@ use Data::Dumper;
 use Carp 'croak';
 use Digest::MD5 'md5';
 
-sub INTERFACE { return (
-    # we can stream and packets, although they behave differently
-    [ undef, [ IMP_PASS, IMP_DENY ] ]
-)}
+sub INTERFACE { return ([
+    undef, # we can stream and packets, although they behave differently
+    [
+	IMP_PASS,   # pass data unchanged
+	IMP_DENY,   # deny if rule is not matched
+	# send pause/continue if last rule of dir is reached and
+	# max_unbound is undef
+	IMP_PAUSE,
+	IMP_CONTINUE,
+    ]
+])}
 
 sub _compile_cfg {
     my %args = @_;
@@ -278,6 +286,12 @@ sub data {
 	if ( ! defined $max_unbound ) {
 	    $DEBUG && debug(
 		"buffer data for dir $dir because buffering not bound");
+	    if ( ! $self->{paused}[$dir] ) {
+		# ask data provider to stop sending data
+		$self->{paused}[$dir] = 1;
+		$self->run_callback([ IMP_PAUSE, $dir ]);
+	    }
+	    # if pass_until>0 we had something to pass
 	    goto PASS_AND_RETURN;
 	}
 
@@ -595,10 +609,16 @@ sub data {
     # rulesets for both dirs are done, pass all data
     $DEBUG && debug("all rules done - pass rest");
     $self->{buf} = undef;
-    $self->run_callback(
+    my @rv = (
 	[ IMP_PASS,0,IMP_MAXOFFSET ],
 	[ IMP_PASS,1,IMP_MAXOFFSET ]
     );
+    for(0,1) {
+	$self->{paused}[$_] or next;
+	$self->{paused}[$_] = 0;
+	unshift @rv, [ IMP_CONTINUE,$_ ];
+    }
+    $self->run_callback(@rv);
     return;
 
     PASS_AND_RETURN:
@@ -758,7 +778,11 @@ direction are matched.
 Using this parameter the amount of buffered data which cannot be bound to a rule
 will be limited per direction.
 
-If not set, a default of unlimited will be used!
+If not set, a default of unlimited will be used.
+In this case it will send IMP_PAUSE to the data provider if it is necessary to
+buffer data, so that it can temporary stop receiving data.
+If max_unbound is not unlimited it will not send IMP_PAUSE, so that it can
+enforce the limit.
 
 =back
 
@@ -845,10 +869,11 @@ If the matching failed, an IMP_DENY is issued.
 
 If only the rules from one direction matched so their are still outstanding
 rules for the other connection, the data for the completed connection will not
-be passed yet. To limit the amount of data which needs to be buffered by the
-caller, C<max_unbound> should be set.
+be passed yet.
+If the amount of unbound data should be limited C<max_unbound> should be set.
 Buffering more data than C<max_unbound> for this direction will cause a DENY.
-
+If C<max_unbound> is not set it will use flow control (e.g. IMP_PAUSE) to make
+the data provide temporary stop receiving data.
 
 =head2 Rules for Writing the Regular Expressions
 
