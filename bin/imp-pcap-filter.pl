@@ -191,7 +191,9 @@ sub pktin {
 	$meta->{saddr}, $meta->{sport},
 	$meta->{daddr}, $meta->{dport},
     );
-    return PacketWriter::Conn->new($pcap,$imp);
+    my $conn = PacketWriter::Conn->new($pcap,$imp);
+    $conn->pktin(0,$data);
+    return $conn;
 }
 
 package PacketWriter::Conn;
