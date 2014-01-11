@@ -516,7 +516,7 @@ sub data {
 		my $ma = $self->{factory_args}{max_unbound};
 		if ( ! defined( $ma && $ma->[$dir] )) {
 		    $removed = $len;
-		    substr($self->{buf},0,$removed,'');
+		    substr($self->{buf}[$dir],0,$removed,'');
 		}
 	    }
 

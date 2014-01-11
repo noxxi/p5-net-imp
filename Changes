@@ -1,3 +1,9 @@
+0.628 2014/01/11
+- fix case in ProtocolPinning, when for streaming data last rule for
+  direction was matched, match could have been longer and no max_unbound
+  was defined for dir. In this case it did not strip the matched data
+  from the buffer. This problem caused no harm but only a warning with
+  perl >= 5.16
 0.627 2013/12/12
 - bin/imp-pcap-filter.pl skipped first packet of udp connection
 0.626 2013/10/09
