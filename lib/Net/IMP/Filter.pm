@@ -1,5 +1,7 @@
 use strict;
 use warnings;
+no if $] >= 5.017011, warnings => 'experimental::smartmatch';
+
 package Net::IMP::Filter;
 use Net::IMP;
 use Net::IMP::Debug;

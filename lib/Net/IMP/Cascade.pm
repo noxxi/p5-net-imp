@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 
 ############################################################################
 # BEWARE! complex stuff!
