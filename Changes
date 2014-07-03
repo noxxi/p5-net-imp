@@ -11,7 +11,7 @@
 0.627 2013/12/12
 - bin/imp-pcap-filter.pl skipped first packet of udp connection
 0.626 2013/10/09
-- ProtocolPinng: support for IMP_PAUSE/IMP_CONTINUE if max_unbound undef
+- ProtocolPinning: support for IMP_PAUSE/IMP_CONTINUE if max_unbound undef
 0.625 2013/10/07
 - ProtocolPinning: fix bug for streaming mode if data call contained more data
   then necessary to match last rule in dir and other dir had unfinshed match

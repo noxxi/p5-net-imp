@@ -3,6 +3,8 @@ use warnings;
 
 package Net::IMP::Example::LogServerCertificate;
 use base 'Net::IMP::Base';
+use Net::SSLeay;
+
 use fields (
     'done',    # done or no SSL
     'sbuf',    # buffer on server side
@@ -14,7 +16,7 @@ use Carp 'croak';
 
 sub INTERFACE {
     return ([
-	IMP_DATA_STREAM,
+	undef,
 	[ IMP_PASS, IMP_PREPASS, IMP_LOG ]
     ])
 }
@@ -49,16 +51,47 @@ sub data {
     ) {
 	$self->{done} = 1;
 
-	# find OID 2.5.4.3 (coommon name) the quick and dirty way
-	if ( $certs =~m{\x06\x03\x55\x04\x03.}g
-	    and my $name = _get_asn1_string(substr($certs,pos($certs)))) {
-	    $self->run_callback([ IMP_LOG,1,0,0,IMP_LOG_INFO,"cn=$name" ]);
+	my ($len) = unpack("xa3",substr($certs,0,4,''));
+	$len = unpack("N","\0$len");
+	substr($certs,$len) = '';
+	$len = unpack("N","\0".substr($certs,0,3,''));
+	substr($certs,$len) = '';
+	my $i = 0;
+	while ($certs ne '') {
+	    my $clen = unpack("N","\0".substr($certs,0,3,''));
+	    my $cert = substr($certs,0,$clen,'');
+	    length($cert) == $clen or
+		die "invalid certificate length ($clen vs. ".length($cert).")";
+	    if ( my $line = eval { _cert2line($cert) } ) {
+		$self->run_callback([ IMP_LOG,1,0,0,IMP_LOG_INFO,
+		    sprintf("chain[%d]: %s",$i,$line)]);
+	    } else {
+		warn "failed to convert cert to string: $@";
+	    }
+	    $i++;
 	}
     }
 
     $self->run_callback([ IMP_PASS,1,IMP_MAXOFFSET ])
 	if $self->{done};
 }
+
+sub _cert2line {
+    my $der = shift;
+    my $bio = Net::SSLeay::BIO_new( Net::SSLeay::BIO_s_mem());
+    Net::SSLeay::BIO_write($bio,$der);
+    my $cert = Net::SSLeay::d2i_X509_bio($bio);
+    Net::SSLeay::BIO_free($bio);
+    $cert or die "cannot parse certificate: ".
+	Net::SSLeay::ERR_error_string(Net::SSLeay::ERR_get_error());
+    my $not_before = Net::SSLeay::X509_get_notBefore($cert);
+    my $not_after = Net::SSLeay::X509_get_notAfter($cert);
+    $_ = Net::SSLeay::P_ASN1_TIME_put2string($_) for($not_before,$not_after);
+    my $subject = Net::SSLeay::X509_NAME_oneline(
+	Net::SSLeay::X509_get_subject_name($cert));
+    return "$subject | $not_before - $not_after";
+}
+
 
 sub _read_ssl_handshake {
     my ($self,$buf,$expect_htype) = @_;
@@ -86,19 +119,6 @@ sub _read_ssl_handshake {
     return;
 }
 
-sub _get_asn1_string {
-    my $buf = shift;
-    my $len = unpack('C',substr($buf,0,1,''));
-    if ( $len & 0x80 ) {
-	# long string, get number of length bytes
-	$len &= 0x7f;
-	my @len = unpack("C$len",substr($buf,0,$len,''));
-	$len = shift(@len);
-	$len = $len * 0x100 + shift(@len) while (@len);
-	$len > length($buf) and return; # invalid length
-    }
-    return substr($buf,0,$len);
-}
 
 # debugging stuff
 sub _hexdump {
@@ -120,7 +140,7 @@ __END__
 =head1 NAME
 
 Net::IMP::Example::LogServerCertificate - Proof Of Concept IMP plugin for
-logging server certificate of SSL connections
+logging server certificate and chain of SSL connections
 
 =head1 SYNOPSIS
 
@@ -129,8 +149,8 @@ logging server certificate of SSL connections
 =head1 DESCRIPTION
 
 C<Net::IMP::Example::LogServerCertificate> implements an analyzer, which expects
-an SSL Server Hello on the server side, extracts the certificates and logs their
-common name.
+an SSL Server Hello on the server side, extracts the certificates and logs
+information about them.
 There are no further arguments.
 
 =head1 BUGS
