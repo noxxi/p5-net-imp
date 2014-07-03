@@ -1,5 +1,5 @@
 0.629 2014/01/12
-- fix smartwatch warnings with perl 5.19.7
+- fix smartmatch warnings with perl 5.19.7
 - fix test failure str2cfg with perl 5.19.7 (stringification of regex
   changed again)
 0.628 2014/01/11
