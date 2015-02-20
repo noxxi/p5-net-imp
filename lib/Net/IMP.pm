@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.629';
+our $VERSION = '0.630';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -501,17 +501,19 @@ starting at C<$offset> and ending at C<$endoffset>. Based on this promise the
 data provider might just forget the data and thus save memory.
 Like with C<IMP_PAUSE> the data provider might ignore this return value.
 
-=item [ IMP_LOG, $dir, $offset, $len, $level, $msg ]
+=item [ IMP_LOG, $dir, $offset, $len, $level, $msg, key1, value1, ... ]
 
 This contains a log message C<$msg> which is about data in direction C<$dir>
-starting with C<$offset> and C<$len> octets long.
+starting with C<$offset> and C<$len> octets long. After the message 
+extended information can be optionally added which should be interpreted by the
+data provider as key,value pairs (both strings).
+
 C<$level> might specify a log level like debug, info, warn... .
-
-The data provider should just log the information in this case.
-
 C<$level> is one of LOG_IMP_*, which are similar to syslog levels,
 e.g. IMP_LOG_DEBUG, IMP_LOG_INFO,...
 These level constants can be imported with C<< use Net::IMP ':log' >>.
+
+The data provider should just log the information in this case.
 
 =item [ IMP_PORT_OPEN|IMP_PORT_CLOSE, $dir, $offset, ... ]
 
