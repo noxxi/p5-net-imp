@@ -589,7 +589,7 @@ sub new_analyzer {
 		$wself->run_callback([ $rtype, @$rv ]);
 
 	    } elsif ( $rtype == IMP_LOG ) {
-		my ($dir,$offset,$len,$level,$msg) = @$rv;
+		my ($dir,$offset,$len,$level,$msg,@extmsg) = @$rv;
 		$DEBUG && debug(
 		    "callback[$dir][$pi] $rtype '$msg' off=$offset len=$len lvl=$level");
 		# approximate offset to real position
@@ -604,7 +604,7 @@ sub new_analyzer {
 			last
 		    }
 		}
-		$wself->run_callback([ IMP_LOG,$dir,$offset,$len,$level,$msg ]);
+		$wself->run_callback([ IMP_LOG,$dir,$offset,$len,$level,$msg,@extmsg ]);
 
 	    } elsif ( $rtype == IMP_PAUSE ) {
 		my $dir = shift;

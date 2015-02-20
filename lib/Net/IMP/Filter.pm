@@ -19,7 +19,11 @@ sub out {
 }
 
 sub deny {
-    my ($self,$msg,$dir) = @_;
+    my ($self,$msg,$dir,@extmsg) = @_;
+    while (@extmsg) {
+	my ($k,$v) = splice(@extmsg,0,2);
+	$msg .= " $k:$v";
+    }
     $DEBUG && debug("deny $msg");
     return;
 }
@@ -31,7 +35,11 @@ sub fatal {
 }
 
 sub log {
-    my ($self,$level,$msg,$dir,$offset,$len) = @_;
+    my ($self,$level,$msg,$dir,$offset,$len,@extmsg) = @_;
+    while (@extmsg) {
+	my ($k,$v) = splice(@extmsg,0,2);
+	$msg .= " $k:$v";
+    }
     $DEBUG && debug("log [$level] $msg");
     return;
 }
@@ -161,8 +169,8 @@ sub _imp_cb {
 	$DEBUG && debug("$rtype ".join(" ",map { "'$_'" } @$rv));
 
 	if ( $rtype == IMP_DENY ) {
-	    my ($dir,$msg) = @$rv;
-	    $self->deny($msg,$dir);
+	    my ($dir,$msg,@extmsg) = @$rv;
+	    $self->deny($msg,$dir,@extmsg);
 	    $self->{dead} = 1;
 	    return;
 	} elsif ( $rtype == IMP_FATAL ) {
@@ -172,8 +180,8 @@ sub _imp_cb {
 	    return;
 
 	} elsif ( $rtype == IMP_LOG ) {
-	    my ($dir,$offset,$len,$level,$msg) = @$rv;
-	    $self->log($level,$msg,$dir,$offset,$len);
+	    my ($dir,$offset,$len,$level,$msg,@extmsg) = @$rv;
+	    $self->log($level,$msg,$dir,$offset,$len,@extmsg);
 
 	} elsif ( $rtype == IMP_ACCTFIELD ) {
 	    my ($key,$value) = @$rv;

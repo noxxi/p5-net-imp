@@ -1,4 +1,8 @@
-0.629 2015/02/20
+0.631 2015/02/20
+- Allow extended information with IMP_DENY too.
+  Update Filter and Cascade to use extended information in IMP_LOG
+  and IMP_DENY.
+0.630 2015/02/20
 - Documentation update API. Allow extended information with IMP_LOG.
 0.629 2014/01/12
 - fix smartmatch warnings with perl 5.19.7

@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package Net::IMP;
-our $VERSION = '0.630';
+our $VERSION = '0.631';
 
 use Carp 'croak';
 use Scalar::Util 'dualvar';
@@ -449,10 +449,12 @@ In this case the window for bad data might be set small enough to allow high
 latency while limiting impact of malicious data.
 This can be done through continues updates of C<$offset>.
 
-=item [ IMP_DENY, $dir, $reason ]
+=item [ IMP_DENY, $dir, $reason, key1, value1,... ]
 
 Deny any more data on this context.
 If C<$reason> is given, it should be used to construct a message to the client.
+After the reason extended information can be optionally added which should be 
+interpreted by the data provider as key,value pairs (both strings).
 
 Deny results by closing the context in a way visible to the client (e.g. closing
 the connection with RST).
