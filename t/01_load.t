@@ -16,7 +16,7 @@ test: for (
     [ 'Net::IMP::SessionLog' ],
     [ 'Net::IMP::Cascade' ],
 #    [ 'Net::IMP::HTTP_AddCSPHeader'  => 'WWW::CSP','Net::Inspect' ],
-    [ 'Net::IMP::Example::LogServerCertificate' ],
+    [ 'Net::IMP::Example::LogServerCertificate' => 'Net::SSLeay' ],
     [ 'Net::IMP::Example::IRCShout' ],
     [ 'bin/imp-pcap-filter.pl' => 'Net::Inspect','Net::PcapWriter!0.7' ],
     [ 'bin/imp-relay.pl' => 'Net::Inspect','AnyEvent!6.12' ],
