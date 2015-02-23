@@ -1,3 +1,5 @@
+0.632 2015/02/23
+- fix test in case Net::SSLeay is not installed
 0.631 2015/02/20
 - Allow extended information with IMP_DENY too.
   Update Filter and Cascade to use extended information in IMP_LOG
