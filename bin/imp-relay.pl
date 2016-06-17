@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 use Getopt::Long qw(:config posix_default bundling);
 use AnyEvent;
 use AnyEvent::Socket qw(tcp_server tcp_connect parse_hostport format_address);

@@ -8,7 +8,7 @@ use Net::Inspect::L2::Pcap;
 use Net::Inspect::L3::IP;
 use Net::Inspect::L4::TCP;
 use Net::Inspect::L4::UDP;
-use Net::PcapWriter 0.7;
+use Net::PcapWriter 0.721;
 use Net::Pcap qw(pcap_open_offline pcap_loop);
 use Net::IMP;
 use Net::IMP::Cascade;
@@ -119,8 +119,8 @@ pcap_loop($pcap_in,-1,sub {
 
 for(@tcpconn) {
     $_ or next;
-    $_->_connect;
-    $_->_close;
+    $_->shutdown(0);
+    $_->shutdown(1);
 }
 
 
